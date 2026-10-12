@@ -1,0 +1,776 @@
+# CERO TRACKER — COMPREHENSIVE SYSTEM AUDIT & OPTIMIZATION REPORT
+
+---
+
+## A. SYSTEM ARCHITECTURE MAP
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            USER INTERACTION                                 │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          BROWSER (App.html)                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │  State Mgmt  │  │   Router     │  │  Rendering   │  │  Drawers/    │   │
+│  │ (session,    │  │  (hash-based)│  │ (tables,     │  │  Modals/     │   │
+│  │  cubsList,   │  │              │  │  cards,      │  │  Toasts      │   │
+│  │  actions,    │  │              │  │  pagination) │  │              │   │
+│  │  interactions)        │              │              │              │   │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘   │
+│         │                 │                 │                 │            │
+│         └─────────────────┼─────────────────┼─────────────────┘            │
+│                           │                 │                              │
+│                    ┌──────▼─────────┐ ┌─────▼──────┐                       │
+│                    │ google.script  │ │  Events    │                       │
+│                    │ .run (async)   │ │ (click,    │                       │
+│                    └───────┬────────┘ │  input,    │                       │
+│                            │          │  change)   │                       │
+└────────────────────────────┼──────────┼────────────┼───────────────────────┘
+                             │          │            │
+              ┌──────────────┘          │            └────────────────┐
+              ▼                         ▼                             ▼
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│  APPS SCRIPT V8     │    │  CACHE SERVICE      │    │  PROPERTIES SERVICE │
+│  (Backend .gs files)│    │  (Script Cache)     │    │  (Script Props)     │
+│                     │    │                     │    │                     │
+│ ┌─────────────────┐ │    │  • cache_version    │    │  • cache_version    │
+│ │ DashboardData.gs│ │    │  • ori_rc_version   │    │  • ori_rc_version   │
+│ │ DashboardWrite.gs│    │  • search_idx       │    │  • search_cache_ver │
+│ │ SyncService.gs  │ │    │  • form_init_data   │    │  • access_list      │
+│ │ Auth.gs         │ │    │  • access_list (60s)│    │  • fail_<email>     │
+│ │ FormHandler.gs  │ │    │  • dashboard data   │    │  • SYNC_RESUME_STATE│
+│ │ Utils.gs        │ │    │  • cover actions    │    │                     │
+│ └─────────────────┘ │    │  • handover notes   │    │                     │
+└─────────┬───────────┘    └─────────────────────┘    └─────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    GOOGLE SHEETS (Active Spreadsheet)                       │
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌─────────┐ ┌─────────┐ ┌────────────┐  │
+│  │ Master │ │Families│ │  Cubs  │ │Interact.│ │ Actions │ │ Orientation│  │
+│  ├────────┤ ├────────┤ ├────────┤ ├─────────┤ ├─────────┤ ├────────────┤  │
+│  │21 cols │ │ 7 cols │ │34 cols │ │ 17 cols │ │ 17 cols │ │  20 cols   │  │
+│  └────────┘ └────────┘ └────────┘ └─────────┘ └─────────┘ └────────────┘  │
+│  ┌─────────┐ ┌───────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────┐   │
+│  │Reading  │ │RC Pending │ │Ori Pending│ │Handover  │ │  Config      │   │
+│  │ Circle  │ │           │ │          │ │ Notes    │ │  (dropdowns, │   │
+│  │(dynamic)│ │           │ │          │ │          │ │   users)     │   │
+│  └─────────┘ └───────────┘ └──────────┘ └───────────┘ └──────────────┘   │
+│  ┌────────────────┐ ┌────────────────┐                                     │
+│  │  Log           │ │  Email History │                                     │
+│  └────────────────┘ └────────────────┘                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    EXTERNAL SPREADSHEETS (read-only via IMPORTRANGE)        │
+│  ┌─────────────────────────┐  ┌─────────────────────────────────────────┐  │
+│  │ Master Source (B2 URL)  │  │ Cubs Registry + Score Calendar (B3)    │  │
+│  │ - Master tab            │  │ - Cubs Registry tab                    │  │
+│  │ - Config tab (dropdowns)│  │ - Score Calendar tab (points grid)     │  │
+│  └─────────────────────────┘  └─────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## B. DATA FLOW MAP
+
+### 1. INITIAL LOAD (Dashboard)
+```
+USER → login() → showApp() → loadData()
+  → getDashboardData(token, adminFilter)
+    → _getCacheChunked(cacheKey) → [HIT] return cached
+    → [MISS]
+      → SpreadsheetApp.getActiveSpreadsheet()
+      → Master.getDataRange().getValues()           // 1 read: ALL master rows
+      → Cubs.getDataRange().getValues()             // 1 read: ALL cubs rows
+      → Families.getDataRange().getValues()         // 1 read: ALL families rows
+      → Actions.getDataRange().getValues()          // 1 read: ALL actions rows
+      → Interactions.getDataRange().getValues()     // 1 read: ALL interactions rows
+      → EmailHistory.getDataRange().getValues()     // 1 read: ALL email history rows
+      → ReadingCircle.getDataRange().getValues()    // 1 read: ALL RC rows
+      → Orientation.getDataRange().getValues()      // 1 read: ALL orientation rows
+      → RC_Pending.getDataRange().getValues()       // 1 read: ALL RC pending rows
+      → Ori_Pending.getDataRange().getValues()      // 1 read: ALL Ori pending rows
+      → In-memory: build maps, filter, transform, enrich
+      → JSON.stringify(payload) → _putCacheChunked() → return
+  → renderDashboard(), renderActionsTable(), etc.
+```
+
+### 2. NAVIGATION (Orientation Page)
+```
+USER clicks "Orientation" nav → handleRoute('#/orientation')
+  → loadOrientationPage(force)
+    → if cached (<5min) → _renderOriPage() from _oriData [INSTANT]
+    → else getOrientationPageData(token)
+      → _getCacheChunked(ori_page_KEY) → [HIT] return
+      → [MISS]
+        → Orientation.getDataRange().getValues()       // FULL read
+        → Orientation_Pending.getDataRange().getValues() // FULL read
+        → Cubs.getDataRange().getValues()              // FULL read (for cubName lookup)
+        → Master.getDataRange().getValues()            // FULL read (for parentName)
+        → return { pendingRows, trackerRows }
+      → cache → _renderOriPage()
+```
+
+### 3. WRITE (submitInteractions)
+```
+USER submits interaction form → submitInteractionForm()
+  → optimistic UI update (local arrays, _renderAll())
+  → close drawer, show "Saving..."
+  → scriptRunWithRetry(ctx => ctx.submitInteractions(token, [payload]))
+    → _withScriptLock(fn) → LockService.getScriptLock().waitLock(30s)
+      → Interactions.appendRow(batch)             // 1 write
+      → Actions.appendRow(batch)                  // 1 write (if action required)
+      → Cubs.getDataRange().getValues()           // 1 read (for cubRowMap)
+      → Cubs.setValues(batch per affected cub)    // N writes (batched 3 cols each)
+      → _bustAllDashboardCaches()                 // increments cache_version + ori_rc_version
+    → success → confirm optimistic IDs with real IDs → _renderAll() → toast
+```
+
+### 4. SYNC (runDailySync - 6 AM daily)
+```
+Trigger → runDailySync()
+  → _fetchEnrichmentData() [OUTSIDE LOCK]
+    → SpreadsheetApp.openByUrl(B2) → Master.getDataRange().getValues()
+    → SpreadsheetApp.openByUrl(B3) → Registry.getDataRange().getValues()
+    → SpreadsheetApp.openByUrl(B3) → ScoreCalendar.getDataRange().getValues()
+    → Local ReadingCircle.getDataRange().getValues()
+    → Local Orientation.getDataRange().getValues()
+  → _withScriptLock(() => {
+      _updateOverdueActionsStatus()     // reads Actions, batch writes Overdue
+      _runIncrementalSync()             // processes Master in chunks of 2000
+        → mirror Master to local Master  // clear + setValues
+        → _syncFamiliesBulk()            // read Families, build map, clear+setValues
+        → _syncCubsBulk()                // read Cubs, build map, enrich, clear+setValues
+        → _bustAllDashboardCaches()
+      })
+```
+
+---
+
+## C. READ AUDIT
+
+| # | Location | Read Operation | Data Volume | Frequency | Necessary? | Issue | Recommendation |
+|---|----------|----------------|-------------|-----------|------------|-------|----------------|
+| R1 | `getDashboardData` L103 | `masterSheet.getDataRange().getValues()` | ~500-2000 rows × 21 cols | Every dashboard load | ⚠️ Partial | Only needs Cub ID → Parent map; reads ALL columns | Read only columns A, J, K, L, M (Cub ID, Parent First/Last, Phone, Email) |
+| R2 | `getDashboardData` L103 | `cubsSheet.getDataRange().getValues()` | ~500-2000 rows × 34 cols | Every dashboard load | ✅ Yes | Reads full Cubs tab | Keep; required for dashboard |
+| R3 | `getDashboardData` L252 | `famSheet.getDataRange().getValues()` | ~200-800 rows × 7 cols | Every dashboard load | ✅ Yes | Reads full Families tab | Keep |
+| R4 | `getDashboardData` L283 | `actSheet.getDataRange().getValues()` | ~100-500 rows × 17 cols | Every dashboard load | ✅ Yes | Reads full Actions tab | Keep |
+| R5 | `getDashboardData` L351 | `intSheet.getDataRange().getValues()` | ~500-3000 rows × 17 cols | Every dashboard load | ⚠️ Partial | Only last 50-100 needed for most views; loads ALL | Add pagination param; default to last 200 rows |
+| R6 | `getDashboardData` L410 | `emailHistSheet.getDataRange().getValues()` | ~100-500 rows × 15 cols | Every dashboard load | ⚠️ No | Only needed when cub drawer opened | Move to `getInteractionsForCub` or separate `getEmailHistoryForCub` |
+| R7 | `getDashboardData` L469 | `rcSheet.getDataRange().getValues()` | ~100-500 rows × dynamic | Every dashboard load | ⚠️ Partial | Only needed for RC page | Move to `getRCPageData` |
+| R8 | `getDashboardData` L492 | `oriSheet.getDataRange().getValues()` | ~100-500 rows × 20 cols | Every dashboard load | ⚠️ Partial | Only needed for Orientation page | Move to `getOrientationPageData` |
+| R9 | `getDashboardData` L532 | `rcPendSheet.getDataRange().getValues()` | ~10-100 rows × 14 cols | Every dashboard load | ✅ Yes | Only counts pending | Keep; tiny dataset |
+| R10 | `getDashboardData` L542 | `oriPendSheet.getDataRange().getValues()` | ~10-100 rows × 14 cols | Every dashboard load | ✅ Yes | Only counts pending | Keep; tiny dataset |
+| R11 | `getCoverActions` L674 | `cubsSheet.getDataRange().getValues()` | ~500-2000 rows × 34 cols | Cover page load | ✅ Yes | Builds cubInfoMap | Keep; cached 5min |
+| R12 | `getCoverActions` L692 | `actSheet.getDataRange().getValues()` | ~100-500 rows × 17 cols | Cover page load | ✅ Yes | Reads all actions | Keep; cached 5min |
+| R13 | `searchContacts` L865 | `masterSheet.getDataRange().getValues()` | ~500-2000 rows × 21 cols | Every search keystroke (debounced 250ms) | ⚠️ No | Reads ALL master on every search | Use cached `searchableList` (already implemented via `getMasterSearchIndex`) |
+| R14 | `getInteractionsForCub` L605 | `intSheet.getDataRange().getValues()` | ~500-3000 rows × 17 cols | Every cub drawer open | ⚠️ No | Scans bottom-up for 50 rows; reads ALL | Could use `getDataRange()` but only needs last N rows; acceptable |
+| R15 | `getOrientationPageData` L1115 | `ps.getDataRange().getValues()` | ~10-100 rows × 14 cols | Orientation page load | ✅ Yes | Pending rows only | Keep |
+| R16 | `getOrientationPageData` L1147 | `cubsSheet.getDataRange().getValues()` | ~500-2000 rows × 34 cols | Orientation page load | ⚠️ Partial | Only needs cubId→cubName map | Read only Cub ID, First Name, Last Name columns |
+| R17 | `getOrientationPageData` L1163 | `ms.getDataRange().getValues()` | ~500-2000 rows × 21 cols | Orientation page load | ⚠️ Partial | Only needs parent names | Read only Cub ID, Parent First/Last columns |
+| R18 | `getOrientationPageData` L1217 | `oriSheet.getDataRange().getValues()` | ~100-500 rows × 20 cols | Orientation page load | ✅ Yes | Tracker rows | Keep |
+| R19 | `getRCPageData` | Similar pattern | Similar | RC page load | ⚠️ Partial | Same issue | Same optimization |
+| R20 | `_fetchEnrichmentData` L306 | `extMasterSheet.getDataRange().getValues()` | ~500-2000 rows × 21 cols | Daily sync (6 AM) | ✅ Yes | Full mirror required | Keep; outside lock |
+| R21 | `_fetchEnrichmentData` L324 | `regSheet.getDataRange().getValues()` | ~500-2000 rows × ~10 cols | Daily sync | ✅ Yes | Registry enrichment | Keep |
+| R22 | `_fetchEnrichmentData` L344 | `scSheet.getDataRange().getValues()` | ~500-2000 rows × ~50 cols | Daily sync | ✅ Yes | Score calendar | Keep |
+| R23 | `SyncService._syncFamiliesBulk` L464 | `familiesSheet.getDataRange().getValues()` | ~200-800 rows × 7 cols | Daily sync (per chunk) | ✅ Yes | Build existing map | Keep |
+| R24 | `SyncService._syncCubsBulk` L563 | `cubsSheet.getDataRange().getValues()` | ~500-2000 rows × 34 cols | Daily sync (per chunk) | ✅ Yes | Build existing map | Keep |
+
+**Critical Read Issues:**
+
+1. **R1, R5, R6, R7, R8, R16, R17** — `getDashboardData` reads **8 sheets fully** on every dashboard load, even when user only views Dashboard tab. Email History, Reading Circle, Orientation, Master (for parent map) are heavy reads not needed for dashboard view.
+
+2. **R13** — `searchContacts` has a cached index (`getMasterSearchIndex`) but ALSO falls back to full sheet read if cache miss. The fallback should be removed or made explicit.
+
+3. **R18** — `getOrientationPageData` reads Cubs + Master + Orientation tabs fully. Cubs + Master reads are only for `cubName` and `parentName` enrichment — can use column-limited reads.
+
+---
+
+## D. WRITE AUDIT
+
+| # | Location | Write Operation | Pattern | Batched? | Issue | Recommendation |
+|---|----------|-----------------|---------|----------|-------|----------------|
+| W1 | `submitInteractions` L133 | `sheet.getRange(...).setValues(intRows)` | Batch append | ✅ Yes | Good | Keep |
+| W2 | `submitInteractions` L137 | `actionsSheet.getRange(...).setValues(actRows)` | Batch append | ✅ Yes | Good | Keep |
+| W3 | `submitInteractions` L149 | `cubsSheet.getRange(row, col, 1, 3).setValues([[...]])` | Per-cub loop (N calls) | ⚠️ Partial | 1 `setValues` per affected cub (3 cols) | Collect all cub updates → single `setValues` with sparse row indices via `RangeList` or write full block |
+| W4 | `submitActionFollowUp` L223 | `sheet.getRange(...).setValues([row])` | Single row | ✅ Yes | Good (single interaction) | Keep |
+| W5 | `submitActionFollowUp` L241 | `actSheet.deleteRow(i+1)` | Row delete | ✅ N/A | Acceptable (rare) | Keep |
+| W6 | `submitActionFollowUp` L269 | `actSheet.getRange(...).setValues([aRow])` | Single row | ✅ Yes | Good | Keep |
+| W7 | `submitActionFollowUp` L278 | `cubsSheet.getRange(...).setValues([[...]])` | Single cub | ✅ Yes | Good | Keep |
+| W8 | `deleteInteraction` L316 | `intSheet.deleteRow(i+1)` | Row delete | ✅ N/A | Acceptable | Keep |
+| W9 | `deleteInteraction` L330 | `actSheet.deleteRow(i+1)` | Row delete | ✅ N/A | Acceptable | Keep |
+| W10 | `deleteInteraction` L353 | `cubsSheet.getRange(...).setValues([[...]])` | Single cub | ✅ Yes | Good | Keep |
+| W11 | `editInteraction` L436 | `sheet.getRange(rowIndex, 1, 1, row.length).setValues([row])` | Full row overwrite | ✅ Yes | Good | Keep |
+| W12 | `editInteraction` L472 | `actionsSheet.getRange(...).setValues([aRow])` | Single row | ✅ Yes | Good | Keep |
+| W13 | `editInteraction` L497 | `cubsSheet.getRange(...).setValues([[...]])` | Single cub | ✅ Yes | Good | Keep |
+| W14 | `submitHandoverNote` L569 | `sheet.getRange(rowIndex, 1, 1, row.length).setValues([row])` | Full row | ✅ Yes | Good | Keep |
+| W15 | `updateOrientationStage` L661 | `sheet.getRange(rowIndex, 1, 1, row.length).setValues([existingRow])` | Full row overwrite | ✅ Yes | Good (fixed in audit) | Keep |
+| W16 | `updateOrientationBlocks` L759 | `sheet.getRange(rowIndex, 1, 1, row.length).setValues([row])` | Full row overwrite | ✅ Yes | Good | Keep |
+| W17 | `updateReadingCircle` L808 | `sheet.getRange(rowIndex, col, 1, 3).setValues([[...]])` | 3-col update | ✅ Yes | Good | Keep |
+| W18 | `submitRCAttendance` L899 | `sheet.getRange(1, 1, data.length, headers.length).setValues(data)` | **FULL SHEET REWRITE** | ❌ No | Rewrites ENTIRE Reading Circle tab on every attendance submit | **P0** — Use sparse updates; append new date column + update only changed rows |
+| W19 | `submitRCAttendance` L924 | `sheet.getRange(...).setValues(newRows)` | Batch append | ✅ Yes | Good | Keep |
+| W20 | `confirmPendingSignup` L1049 | `rcSheet.getRange(...).setValues([newRow])` | Single row | ✅ Yes | Good | Keep |
+| W21 | `confirmPendingSignup` L1071 | `oSheet.getRange(...).setValues([newRow])` | Single row | ✅ Yes | Good | Keep |
+| W22 | `confirmPendingSignup` L1051 | `rcSheet.getRange(rcRowIdx, col, 1, 1).setValue(...)` | Single cell | ❌ No | Uses `setValue` not `setValues` | Change to `setValues` |
+| W23 | `_syncFamiliesBulk` L542 | `familiesSheet.getRange(2, 1, ..., numCols).setValues(outRows)` | Full clear + rewrite | ✅ Yes | Good (batch) | Keep |
+| W24 | `_syncCubsBulk` L689 | `cubsSheet.getRange(2, 1, ..., numCols).setValues(outRows)` | Full clear + rewrite | ✅ Yes | Good (batch) | Keep |
+| W25 | `_updateOverdueActionsStatus` L751 | `rangeList.setValue('Overdue')` | RangeList batch | ✅ Yes | Good | Keep |
+
+**Critical Write Issues:**
+
+1. **W18 (P0)** — `submitRCAttendance` rewrites the **entire Reading Circle sheet** (all rows × all columns including dynamic date columns) on every attendance submission. With 500 cubs and 20 date columns, that's 10,000 cells written every time. Should only:
+   - Append new date column header (1 cell)
+   - Update only rows that changed (sparse `setValues` per row or `RangeList`)
+   - Recalculate `No. Present` / `Last Attendance` only for affected cubs
+
+2. **W3** — `submitInteractions` does 1 `setValues` per affected cub (3 cols). With 5 interactions for different cubs, that's 5 API calls. Can batch via `RangeList` or collect into single 2D array indexed by row.
+
+---
+
+## E. CACHE AUDIT
+
+### Current Cache Architecture
+```
+Cache Keys (Script Cache, 100KB limit per key, chunked at 90KB):
+├── dash_cv7_v{version}_{role}_{name}          → Full dashboard payload (~80-150KB)
+├── cover_cv6_v{version}                        → Cover actions (~20-50KB)
+├── handover_hn1_v{version}                     → Handover notes (~10-30KB)
+├── ori_page_ori1_v{ori_rc_version}             → Orientation page data (~30-80KB)
+├── rc_page_rc1_v{ori_rc_version}               → RC page data (~30-80KB)
+├── search_idx_cv5_v{search_cache_version}      → Master search index (~50-100KB)
+├── form_init_data_v3                           → Dropdowns (~5-10KB)
+├── access_list_v1 (60s TTL)                    → User credentials
+├── tok_{token} (6h TTL)                        → Session tokens
+└── SEEN_FAMS / SEEN_CUBS (10min TTL)           → Sync resume state
+```
+
+### Cache Version Strategy (Good)
+- **Global version** (`cache_version`): Incremented on ANY write → busts all dashboard caches
+- **Ori/RC version** (`ori_rc_version`): Incremented on Orientation/RC writes only → preserves dashboard cache
+- **Search version** (`search_cache_version`): Incremented only on Master sync → preserves search index
+- **CODE_VER constants** (`cv7`, `cv6`, `ori1`, `hn1`, `cv5`): Bumped on code deployment to invalidate stale caches
+
+### Issues
+| Issue | Severity | Description |
+|-------|----------|-------------|
+| **C1** | P1 | Dashboard payload often exceeds 100KB → chunking adds overhead (multiple `cache.get` calls). Consider splitting into `dash_stats`, `dash_actions`, `dash_interactions`, `dash_families`, `dash_cubs` |
+| **C2** | P2 | `getDashboardData` caches per-role+name+filter. Admin with "All Reps" filter gets different cache than Admin with "Rep A" filter. Good. But Rep caches are per-rep. Could share base data + filter client-side. |
+| **C3** | P2 | `getOrientationPageData` and `getRCPageData` use 5-min SWR on client but 5-min TTL on server. Server cache TTL should be longer (e.g., 10-15 min) with client SWR handling freshness. |
+| **C4** | P1 | **No cache for cub detail data** (email history, full interaction history). Every drawer open calls `getInteractionsForCub` (no cache) + `getDashboardData` already has email history. Should cache email history per-cub. |
+| **C5** | P3 | `_bustAllDashboardCaches` increments BOTH versions. Some writes (interactions, actions, families) don't affect Ori/RC data but still bust `ori_rc_version`. Fixed partially but `submitInteractions`, `deleteInteraction`, `editInteraction`, `submitHandoverNote` still call `_bustAllDashboardCaches`. |
+
+---
+
+## F. UI PERFORMANCE AUDIT
+
+### Navigation & Page Loading
+| Flow | Current Behavior | Problem | Recommendation |
+|------|------------------|---------|----------------|
+| **Dashboard → Orientation** | `loadOrientationPage()` fetches if cache >5min or force | 5-min TTL; full sheet reads on miss | Client has SWR (shows stale instantly, refreshes bg). Server TTL should be 10-15min. |
+| **Dashboard → Reading Circle** | Same as above | Same | Same |
+| **Orientation tab switch** (Pending ↔ Master ↔ Sessions) | Client-side filter on `_oriData` | ✅ Instant (no server call) | Good |
+| **RC tab switch** (Pending ↔ Roster) | Client-side filter on `_rcData` | ✅ Instant | Good |
+| **Drawer open (Cub/Family)** | Renders from `cubsList` / `familiesList` (already in memory) | ✅ Instant | Good |
+| **Interaction Drawer search** | Local filter (cubsList) → then server `searchContacts(searchAll=true)` | Debounced 250ms; server searches full Master | Server search uses cached `searchableList` — good. Local filter first is excellent. |
+| **Admin filter change** | Calls `loadData()` (full dashboard refetch) | 5-min cache helps; but sequence counter prevents race | Good pattern with `_loadDataSeq` |
+
+### Rendering Performance
+| Component | Rows | Render Method | Issue |
+|-----------|------|---------------|-------|
+| Dashboard Actions table | 50/page | `paginateAndRender` + `innerHTML` per row | Creates DOM per row; OK for 50 |
+| Actions table (Engagements) | 50/page | Same | OK |
+| Interactions table | 50/page | Same | OK |
+| Cubs table | 50/page | Same | 21 columns × 50 rows = 1050 cells; OK |
+| Families table | 50/page | Same | OK |
+| Cover table | 50/page | Same | OK |
+| Orientation Master table | 50/page | `innerHTML` via `.map().join('')` | String concat faster than DOM |
+| RC Roster table | 50/page | String concat | Good |
+
+**Issues:**
+1. **F1 (P2)** — `lucide.createIcons({ nodes: [tbody] })` called after EVERY table render. Scans entire tbody for `data-lucide` attributes. With 50 rows × 5-10 icons = 250-500 icons per render. Acceptable but could be optimized by creating icons once per cell template.
+2. **F2 (P3)** — `filterInteractions`, `filterCubs`, `filterCoverActions` re-filter entire arrays on every keystroke (debounced 200ms). Arrays are small (<3000) — fine.
+3. **F3 (P1)** — **No virtual scrolling**. Tables render 50 rows via pagination. Good. But if user sets page size larger, DOM grows. Current PAGE_SIZE=50 is reasonable.
+
+### State Management
+```
+Global State (App.html lines 19-75):
+├── session                  // auth
+├── dashboardData            // stats
+├── actionList               // all actions (filtered per view)
+├── interactionsList         // all interactions (split into my/guest)
+├── familiesList             // all families
+├── cubsList                 // all cubs (with readingCircle merged)
+├── globalMasterSearchIndex  // search index (loaded async after loadData)
+├── coverActionsList         // all reps' actions
+├── handoverNotesList        // all notes
+├── paginationState          // per-table page state
+├── _loadDataSeq             // sequence counter for race prevention
+└── formDropdowns            // dropdown options
+```
+
+**Issues:**
+- **S1 (P2)** — `cubsList` is the "source of truth" for cub data. But `readingCircleList` and `orientationList` are ALSO in dashboard payload and merged into `cubsList` (line 895-901). Then `loadOrientationPage` and `loadReadingCirclePage` fetch SEPARATE datasets (`_oriData`, `_rcData`) that duplicate data. This is intentional for richer data (blocks, dynamic dates) but creates inconsistency risk.
+- **S2 (P2)** — `actionList` and `interactionsList` are filtered client-side for different views (Dashboard actions vs Engagements actions vs Cover actions). Cover actions come from separate `getCoverActions` call. Good separation.
+
+---
+
+## G. BACKEND PERFORMANCE AUDIT
+
+### Expensive Operations
+| Function | Execution Time Estimate | Spreadsheet Calls | Loops | Optimization |
+|----------|------------------------|-------------------|-------|--------------|
+| `getDashboardData` | 2-4s (cold), 50ms (cached) | 8-10 `getDataRange` | 5 loops over cubs/families/actions/interactions/email | **Move non-dashboard reads to dedicated endpoints** |
+| `getOrientationPageData` | 1-2s (cold) | 4 `getDataRange` | 3 loops | **Read only needed columns**; cache 10-15min |
+| `getRCPageData` | 1-2s (cold) | 3-4 `getDataRange` | 2 loops | Same |
+| `submitRCAttendance` | 2-3s | 1 full sheet rewrite + Cubs updates | 3 loops over data | **P0: Rewrite to sparse updates** |
+| `runDailySync` (per chunk) | 20-30s | Multiple full reads + writes | Chunked 2000 rows | Already incremental; good |
+| `_fetchEnrichmentData` | 10-30s | 5 external `openByUrl` + reads | Multiple | Outside lock; good |
+| `searchContacts` (cached) | 50ms | 0 (cache hit) | 1 loop over index | Good |
+| `searchContacts` (miss) | 1-2s | 1 `getDataRange` | 1 loop | Cache pre-warmed by `getMasterSearchIndex` |
+
+### Algorithmic Issues
+| Location | Pattern | Complexity | Fix |
+|----------|---------|------------|-----|
+| `DashboardData.getDashboardData` L114-248 | Single loop over cubsData with Map lookups | O(N) | Good |
+| `DashboardData.getDashboardData` L258-279 | Loop over famData with Map lookup | O(N) | Good |
+| `DashboardData.getDashboardData` L291-339 | Loop over actData with Map lookup | O(N) | Good |
+| `DashboardData.getDashboardData` L355-401 | Loop over intData with Set lookups | O(N) | Good |
+| `DashboardData.getDashboardData` L416-464 | Nested loop: 7 messages × emailHist rows | O(N) | Small N; OK |
+| `DashboardData.getCoverActions` L697-739 | Loop over actData with Map lookup | O(N) | Good |
+| `SyncService._syncCubsBulk` L604-674 | `forEach` over uniqueMasterCubs with Map lookups | O(N) | Good |
+| `FormHandler._autoMatch` L263-293 | Loop over masterData for each form cub | O(M×N) | **P1**: Build phone→cubIds Map once outside loop |
+
+---
+
+## H. GOOGLE SHEETS AUDIT
+
+### Sheet Structure
+| Sheet | Rows (est) | Cols | Dynamic Cols? | Formulas | Issues |
+|-------|------------|------|---------------|----------|--------|
+| Master | 500-2000 | 21 | No | IMPORTRANGE (from external) | Source of truth; read-heavy |
+| Families | 200-800 | 7 | No | None | Derived from Master |
+| Cubs | 500-2000 | 34 | No | None | Enriched from Registry, RC, Orientation |
+| Interactions | 500-3000 | 17 | No | None | Append-only; grows unbounded |
+| Actions | 100-500 | 17 | No | `OVERDUE_STATUS` = `IF` formula | Formula recalculates on edit |
+| Reading Circle | 100-500 | 6 + dynamic dates | **Yes** (date cols added) | None | **W18 rewrites full sheet** |
+| Orientation | 100-500 | 20 | No | None | Block columns (13 cols) |
+| RC Pending | 10-100 | 14 | No | None | Small |
+| Ori Pending | 10-100 | 14 | No | None | Small |
+| Handover Notes | 50-200 | 5 | No | None | Small |
+| Email History | 100-500 | 15 | No | None | Wide (7 msg pairs) |
+| Config | 10-50 | 14 | No | Dropdowns via data validation | Read for dropdowns |
+| Log | 500 (capped) | 4 | No | None | Rotated |
+
+### Formula Issues
+- **Actions.OVERDUE_STATUS** (col Q): `=IF(ISBLANK(O{row}),"No",IF(O{row}<TODAY(),"Yes","No"))` — volatile `TODAY()` recalculates on every edit. Acceptable for 500 rows.
+- **Master** uses `IMPORTRANGE` from external — not counted in this script's quota but adds latency on open.
+
+### Recalculation Impact
+- `TODAY()` in Actions triggers recalc on ANY edit to Actions sheet.
+- `submitRCAttendance` full rewrite (W18) triggers massive recalc if any formulas reference RC sheet.
+- No `ARRAYFORMULA` or `QUERY` in local sheets — good.
+
+---
+
+## I. TRIGGER AUDIT
+
+| Trigger | Handler | Frequency | Purpose | Concurrency Risk |
+|---------|---------|-----------|---------|------------------|
+| Time-driven (6 AM) | `runDailySync` | Daily | Full contact sync + enrichment | Low (single daily run) |
+| Time-driven (1 AM) | `refreshOrientationFormDates` | Daily | Update form choice dates | Low |
+| Form submit (RC) | `onRCFormSubmit` | Per submission | Write to RC Pending | Medium (multiple submissions) |
+| Form submit (Orientation) | `onOrientationFormSubmit` | Per submission | Write to Ori Pending | Medium |
+| Installable (resume) | `_resumeSyncTrigger` | 1 min after chunk | Continue large sync | Low (self-deleting) |
+
+**Issues:**
+- **T1 (P2)** — `onRCFormSubmit` and `onOrientationFormSubmit` use `_withScriptLock` (30s timeout). If multiple forms submit simultaneously, they queue. Acceptable for low volume.
+- **T2 (P3)** — No trigger to clean up old Interactions rows. Table grows unbounded. Consider archiving >1 year.
+
+---
+
+## J. CONCURRENCY AUDIT
+
+### Locking Strategy
+- **Script-level lock** (`LockService.getScriptLock()`) used for ALL write operations via `_withScriptLock`
+- Timeout: 30 seconds (increased from 10s)
+- Client-side retry with exponential backoff (`scriptRunWithRetry`, max 3 retries)
+
+### Race Conditions Identified
+| Scenario | Protection | Gap |
+|----------|------------|-----|
+| Two reps submit interaction for same cub | Lock serializes; Cubs update uses `cubRowMap` built at lock start | If cub added between read and write, `cubRowMap` misses it → interaction skipped (logged warning). Acceptable. |
+| Two reps update same Orientation row | Optimistic locking via `versionTs` (Last Updated column) | ✅ Good — throws conflict error |
+| Two reps confirm same pending signup | Lock serializes; pending row deleted on confirm | ✅ Good |
+| Sync running while user writes | Sync uses lock; user writes use lock | ✅ Serialized; user waits up to 30s |
+| Form submit while sync runs | Form submit uses lock; sync uses lock | ✅ Serialized |
+
+### Issues
+- **CNC1 (P2)** — Lock held during `submitRCAttendance` full sheet rewrite (2-3s). Other writes queue. Fix W18 reduces lock hold time.
+- **CNC2 (P3)** — No `LockService` for read operations. Stale reads possible but cached data mitigates.
+
+---
+
+## K. ERROR HANDLING & RELIABILITY
+
+### Current Patterns
+| Layer | Pattern | Coverage |
+|-------|---------|----------|
+| Backend (.gs) | `try/catch` → `writeLog` + return `{success:false, error}` | All entry points |
+| Backend | `_withScriptLock` catches lock timeout → user-friendly error | All writes |
+| Backend | `writeLog` never throws (catches own errors) | Logging |
+| Frontend | `withFailureHandler` → `handleApiError` → session check + toast | All `google.script.run` |
+| Frontend | `scriptRunWithRetry` → retries on lock contention (3×, exp backoff) | All writes |
+| Frontend | Optimistic UI + rollback on failure | All mutations |
+| Frontend | Sequence counter (`_loadDataSeq`) prevents stale response overwrite | `loadData`, `getMasterSearchIndex` |
+
+### Gaps
+| Gap | Severity | Description |
+|-----|----------|-------------|
+| **E1 (P1)** | P1 | `getDashboardData` catches error → returns `{success:false, error}`. Frontend shows toast but **splash screen stays** (line 876 hides splash only on success). Fix: hide splash in failure handler too. |
+| **E2 (P2)** | P2 | `loadOrientationPage` / `loadReadingCirclePage` show loading rows but on failure, only tbody shows error. No toast. |
+| **E3 (P2)** | P2 | `scriptRunWithRetry` only retries on "lock" errors. Network errors, quota errors, 5xx not retried. |
+| **E4 (P3)** | P3 | No structured error logging to external system (only Log sheet). |
+
+---
+
+## L. BOTTLENECK RANKING
+
+| Priority | ID | Location | Problem | Root Cause | Impact | Recommended Fix | Risk | Expected Benefit |
+|----------|----|----------|---------|------------|--------|-----------------|------|------------------|
+| **P0** | B1 | `DashboardWrite.submitRCAttendance` L833-965 | Full Reading Circle sheet rewrite on every attendance submit | `setValues(data)` on entire sheet | 2-3s write time; blocks all other writes; quota risk at scale | Sparse updates: append date col header + `RangeList.setValues` for changed rows only | Low | 90%+ write time reduction; eliminates lock contention |
+| **P0** | B2 | `DashboardData.getDashboardData` L44-587 | Reads 8 sheets fully on every dashboard load | Monolithic endpoint | 2-4s cold load; unnecessary reads for dashboard view | Split into `getDashboardStats`, `getDashboardActions`, `getDashboardCubs`, etc. Load on demand | Medium | 60-80% initial load reduction; parallelizable |
+| **P1** | B3 | `DashboardData.getDashboardData` L410-459 | Email History read on every dashboard load | Not needed for dashboard | +200-500ms | Move to `getEmailHistoryForCub(cubId)` called from cub drawer | Low | Removes unnecessary read |
+| **P1** | B4 | `DashboardData.getDashboardData` L469-524 | Reading Circle + Orientation full reads on dashboard load | Not needed for dashboard | +300-600ms | Move to dedicated page loaders (already exist) | Low | Removes unnecessary reads |
+| **P1** | B5 | `DashboardData.getDashboardData` L103-104 | Master full read for cubToParentMap | Only needs 5 columns | +200-400ms | Read only cols A, J, K, L, M via `getRange` | Low | 50% faster master read |
+| **P1** | B6 | `FormHandler._autoMatch` L247-307 | O(M×N) phone match per form cub | No phone index | Slow form submit with many cubs | Build `phone→cubIds` Map once | Low | Form submit 10x faster |
+| **P1** | B7 | `Utils._bustAllDashboardCaches` L78-90 | Busts `ori_rc_version` on ALL writes | Over-invalidation | Ori/RC pages refetch unnecessarily | Only call `_bustOriRcCachesOnly` for Ori/RC writes | Low | Preserves Ori/RC cache |
+| **P1** | B8 | `App.html` L3538-3546 | `getInteractionsForCub` called per cub drawer open, no cache | Repeated reads for same cub | +500-1000ms per drawer open | Cache per-cub interaction history (2-5 min TTL) | Low | Instant drawer open for recent cubs |
+| **P2** | B9 | `DashboardWrite.submitInteractions` L147-150 | Per-cub `setValues` (3 cols) instead of batch | N API calls for N cubs | +50-200ms per interaction batch | Collect all cub updates → single `RangeList.setValues` | Low | 50-80% fewer write calls |
+| **P2** | B10 | `App.html` L930-940 | `getMasterSearchIndex` fired async after `loadData` but not awaited | Race: search may use stale/empty index | Search falls back to server | Await or ensure index loaded before search needed | Low | Faster first search |
+| **P2** | B11 | `App.html` | `lucide.createIcons` called on every table render | Scans DOM for icons | Minor CPU | Create icons once per cell template or use CSS pseudo-elements | Low | Smoother renders |
+| **P3** | B12 | `SyncService._fetchEnrichmentData` | 3 external `openByUrl` + 5 `getDataRange` | Sequential external calls | 10-30s sync time | Parallelize external fetches (not possible in GAS sync) | N/A | N/A (GAS limitation) |
+| **P3** | B13 | `Interactions` sheet | Unbounded growth (append-only) | No archive policy | Slower reads over time | Annual archive to separate sheet | Medium | Long-term scalability |
+
+---
+
+## M. OPTIMIZATION ROADMAP
+
+### Phase 1 — Immediate High-Impact Fixes (Week 1-2)
+| Task | Files | Effort | Risk |
+|------|-------|--------|------|
+| **P0-B1** Fix `submitRCAttendance` full sheet rewrite → sparse updates | `DashboardWrite.gs` | Medium | Low |
+| **P1-B3** Remove Email History read from `getDashboardData` | `DashboardData.gs` | Low | Low |
+| **P1-B4** Remove RC/Orientation reads from `getDashboardData` | `DashboardData.gs` | Low | Low |
+| **P1-B5** Column-limited Master read for cubToParentMap | `DashboardData.gs` | Low | Low |
+| **P1-B7** Fix cache busting granularity (use `_bustOriRcCachesOnly` for non-Ori/RC writes) | `DashboardWrite.gs`, `Utils.gs` | Low | Low |
+| **P1-E1** Hide splash screen on `loadData` failure | `App.html` | Trivial | None |
+
+### Phase 2 — Structural Performance Improvements (Week 2-4)
+| Task | Files | Effort | Risk |
+|------|-------|--------|------|
+| **P0-B2** Split `getDashboardData` into granular endpoints: `getDashboardStats`, `getDashboardActions`, `getDashboardCubs`, `getDashboardFamilies`, `getDashboardInteractions` | `DashboardData.gs`, `App.html` | High | Medium |
+| **P1-B6** Build phone index in `_autoMatch` | `FormHandler.gs` | Low | Low |
+| **P1-B8** Cache per-cub interaction history (2-5 min TTL) | `DashboardData.gs` (new fn), `App.html` | Medium | Low |
+| **P2-B9** Batch Cubs updates in `submitInteractions` via `RangeList` | `DashboardWrite.gs` | Low | Low |
+| **P2-B10** Await `getMasterSearchIndex` or pre-warm on login | `App.html` | Low | Low |
+
+### Phase 3 — UI Optimization (Week 3-5)
+| Task | Files | Effort | Risk |
+|------|-------|--------|------|
+| **P2-F1** Optimize `lucide.createIcons` — create once per template, clone nodes | `App.html`, `Stylesheet.html` | Medium | Low |
+| **P3** Add virtual scrolling for large tables (if PAGE_SIZE increased) | `App.html` | Medium | Medium |
+| **P3** Skeleton loading for page transitions (already have splash) | `App.html` | Low | None |
+| **P3** Reduce Layout Shift — reserve space for dynamic columns | `Stylesheet.html` | Low | None |
+
+### Phase 4 — Data Architecture Optimization (Week 4-6)
+| Task | Files | Effort | Risk |
+|------|-------|--------|------|
+| **P3-B13** Implement Interactions archive (yearly) | `SyncService.gs` (new fn), `TriggerManager.gs` | Medium | Medium |
+| **P2** Pre-compute Cubs enrichment indexes (Registry, Score, RC, Orientation) in `_fetchEnrichmentData` | `SyncService.gs` | Low | Low |
+| **P3** Evaluate moving high-write sheets (Interactions, Actions) to separate spreadsheet | Architecture | High | High |
+
+### Phase 5 — Long-Term Scalability (Month 2+)
+| Task | Files | Effort | Risk |
+|------|-------|--------|------|
+| **P5** Migrate to BigQuery / Firestore for analytics if >10k rows | New backend | Very High | Very High |
+| **P5** Implement incremental sync for external sources (webhook/change detection) | New infrastructure | High | High |
+| **P5** Add read-replica pattern: cache Master in separate sheet for faster reads | `SyncService.gs` | Medium | Medium |
+
+---
+
+## DETAILED CHANGE SPECIFICATIONS (Top 5)
+
+### Change 1: Fix `submitRCAttendance` Full Sheet Rewrite
+```
+FILE: DashboardWrite.gs
+FUNCTION: submitRCAttendance (lines 833-965)
+
+CURRENT BEHAVIOR:
+  1. Reads entire Reading Circle sheet into `data` array
+  2. Adds new date column header if missing
+  3. Loops all rows, updates attendance status in memory
+  4. Recalculates No. Present / Last Attendance for ALL rows
+  5. WRITES ENTIRE SHEET: `sheet.getRange(1, 1, data.length, headers.length).setValues(data)`
+  6. Appends new rows for new cubs
+  7. Loops attendanceMap again to propagate to Cubs tab (reads data again)
+
+PROBLEM:
+  - O(Rows × Cols) write every attendance submit
+  - With 500 cubs × 20 date cols = 10,000 cells written
+  - Lock held for 2-3 seconds
+  - Triggers full recalculation of any dependent formulas
+
+ROOT CAUSE:
+  - Simpler to rewrite whole sheet than compute sparse updates
+  - Dynamic date columns make sparse indexing harder
+
+PROPOSED CHANGE:
+  1. Keep reading full sheet (needed for recalc anyway)
+  2. Track only CHANGED rows: `changedRows = []` where attendance changed
+  3. For new date column: `sheet.getRange(1, dateColIdx+1).setValue(dateStr)` (1 cell)
+  4. For changed rows: build `RangeList` of `{row, values: [newStatus]}` → `rangeList.setValues(...)`
+  5. For new cubs: batch append as before
+  6. Recalculate No. Present / Last Attendance ONLY for changed/new cubs
+  7. Propagate to Cubs tab only for changed/new cubs
+
+WHY FASTER:
+  - Writes ~N cells instead of N×M (N=cubs, M=date columns)
+  - Lock hold time drops from 2-3s to ~200-500ms
+  - Eliminates quota pressure
+
+RISKS:
+  - Dynamic column indexing must be correct
+  - RangeList has 30k cell limit per batch (well under)
+  - Must handle header row (row 1) separately
+
+DEPENDENCIES:
+  - None
+
+EXPECTED IMPACT:
+  - submitRCAttendance: 2-3s → 300-500ms
+  - Lock contention eliminated for concurrent attendance submits
+  - Quota usage reduced 90%+
+```
+
+### Change 2: Split `getDashboardData` into Granular Endpoints
+```
+FILE: DashboardData.gs (new functions), App.html (loadData)
+
+CURRENT BEHAVIOR:
+  - Single `getDashboardData` reads 8 sheets, returns 500KB+ JSON
+  - Cached as monolithic chunked payload
+  - All pages (Dashboard, Engagements, Directory) wait for this one call
+
+PROBLEM:
+  - Dashboard tab only needs: stats, actions (50), families (50), cubs (50)
+  - Engagements tab only needs: actions, interactions
+  - Directory tab only needs: cubs, families
+  - Orientation/RC pages have own loaders
+
+ROOT CAUSE:
+  - Historical monolith; easier to cache one payload
+
+PROPOSED CHANGE:
+  1. Create:
+     - `getDashboardStats(token, filter)` → stats only (1 Master read for parent map + 1 Cubs read)
+     - `getDashboardActions(token, filter)` → actions + interactions (2 reads)
+     - `getDashboardCubs(token, filter)` → cubs list (1 Cubs read)
+     - `getDashboardFamilies(token, filter)` → families list (1 Families read)
+  2. `loadData()` calls these in PARALLEL via `Promise.all`:
+     ```js
+     const [stats, actions, cubs, families] = await Promise.all([
+       call('getDashboardStats'),
+       call('getDashboardActions'),
+       call('getDashboardCubs'),
+       call('getDashboardFamilies')
+     ]);
+     ```
+  3. Each endpoint has own cache key: `dash_stats_v{ver}`, `dash_actions_v{ver}`, etc.
+  4. `_bustAllDashboardCaches` increments version → all invalidate
+
+WHY FASTER:
+  - Parallel backend calls (GAS handles concurrent executions)
+  - Each reads 1-2 sheets instead of 8
+  - Smaller payloads → no chunking overhead
+  - Client can render Dashboard stats instantly while Actions/Cubs load
+
+RISKS:
+  - More cache keys to manage
+  - Sequence counter (`_loadDataSeq`) must handle multiple in-flight requests
+  - Admin filter must be passed to all endpoints
+
+DEPENDENCIES:
+  - App.html `loadData` rewrite
+  - Cache version strategy unchanged
+
+EXPECTED IMPACT:
+  - Cold dashboard load: 2-4s → 800ms-1.2s (parallel)
+  - Cached load: 50ms → 20ms (smaller payloads)
+  - Engagements/Directory pages load only what they need
+```
+
+### Change 3: Column-Limited Reads for Master/Cubs in Page Loaders
+```
+FILE: DashboardData.gs
+FUNCTIONS: getOrientationPageData (L1147, L1163), getRCPageData (similar)
+
+CURRENT BEHAVIOR:
+  - `getOrientationPageData` reads full Cubs sheet (34 cols) for cubName map
+  - Reads full Master sheet (21 cols) for parentName map
+
+PROBLEM:
+  - Only needs: Cub ID, First Name, Last Name from Cubs
+  - Only needs: Cub ID, Parent First, Parent Last from Master
+
+ROOT CAUSE:
+  - `getDataRange().getValues()` is easiest
+
+PROPOSED CHANGE:
+  1. Use `sheet.getRange(1, 1, lastRow, lastCol).getValues()` but only for needed columns
+  2. Better: `_getSheetValues(sheet, headerMap, neededColumns)` helper that reads specific column ranges
+  3. For Cubs: read cols A (Cub ID), C (First), D (Last) → 3 columns
+  4. For Master: read cols A (Cub ID), J (Parent First), K (Parent Last) → 3 columns
+  5. 85% less data transferred from Sheets → Apps Script
+
+WHY FASTER:
+  - Less data over the wire (Sheets → Apps Script)
+  - Less memory in Apps Script
+  - Faster JSON serialization
+
+RISKS:
+  - Column positions must be resolved via header map (already done)
+  - `getRange` with discontiguous columns requires multiple calls or full row read
+
+DEPENDENCIES:
+  - `_validateSchema` already returns headerMap
+
+EXPECTED IMPACT:
+  - Orientation page load: 1.5s → 800ms
+  - RC page load: similar
+```
+
+### Change 4: Cache Per-Cub Interaction History
+```
+FILE: DashboardData.gs (new function), App.html
+
+CURRENT BEHAVIOR:
+  - `getInteractionsForCub` reads full Interactions sheet, scans bottom-up for 50 matches
+  - Called every time cub drawer opened
+  - No caching
+
+PROBLEM:
+  - 500-1000ms per drawer open
+  - Same cub opened multiple times in session
+
+PROPOSED CHANGE:
+  1. Add `getCachedInteractionsForCub(token, cubId)` in DashboardData.gs
+  2. Cache key: `int_cub_{cubId}_v{version}`
+  3. Version: use existing `cache_version` (busts on any write)
+  4. TTL: 2 minutes (short because interactions change frequently)
+  5. Frontend: check local cache first (Map in memory), then call cached endpoint
+
+WHY FASTER:
+  - Repeated drawer opens for same cub: instant
+  - Server cache hit: 50ms vs 500ms
+
+RISKS:
+  - Stale data if another rep logs interaction for same cub
+  - Mitigated: 2-min TTL + cache bust on write
+  - Memory: 50 interactions × ~500 bytes = 25KB per cub; fine
+
+DEPENDENCIES:
+  - `_bustAllDashboardCaches` already increments version
+
+EXPECTED IMPACT:
+  - Cub drawer open (repeat): 500ms → 50ms
+  - First open: unchanged
+```
+
+### Change 5: Optimize `_autoMatch` Phone Index
+```
+FILE: FormHandler.gs
+FUNCTION: _autoMatch (lines 247-307)
+
+CURRENT BEHAVIOR:
+  - For each cub in form response, loops ALL master rows
+  - Cleans phone, compares against Parent Phone + Parent WhatsApp
+  - O(M×N) where M=form cubs (1-5), N=master rows (500-2000)
+
+PROBLEM:
+  - Form submit takes 1-2s for matching
+  - Runs inside lock in `_handleFormSubmit`
+
+ROOT CAUSE:
+  - No pre-built index
+
+PROPOSED CHANGE:
+  1. Before cub loop, build `phoneMap = new Map()`:
+     ```js
+     for (let i = 1; i < masterData.length; i++) {
+       const row = masterData[i];
+       const pPhone = clean(row[mCols[CONFIG.COLS.PARENT_PHONE]]);
+       const pWA = clean(row[mCols[CONFIG.COLS.PARENT_WHATSAPP]]);
+       const cubId = row[mCols[CONFIG.COLS.CUB_ID]];
+       if (pPhone) {
+         if (!phoneMap.has(pPhone)) phoneMap.set(pPhone, []);
+         phoneMap.get(pPhone).push(cubId);
+       }
+       if (pWA && pWA !== pPhone) {
+         if (!phoneMap.has(pWA)) phoneMap.set(pWA, []);
+         phoneMap.get(pWA).push(cubId);
+       }
+     }
+     ```
+  2. Then `_autoMatch` looks up `phoneMap.get(cleanPhone)` → O(1)
+  3. Name matching still loops but only for phone-matched subset
+
+WHY FASTER:
+  - Phone match: O(N) → O(1) per cub
+  - Form submit: 1-2s → 200-500ms
+
+RISKS:
+  - Memory: phoneMap with 2000 entries × 2 phones = 4000 keys; trivial
+  - Must handle multiple cubs per phone (already returns array)
+
+DEPENDENCIES:
+  - None
+
+EXPECTED IMPACT:
+  - Form submit latency reduced 75%
+  - Lock hold time reduced
+```
+
+---
+
+## SUMMARY
+
+This CERO Tracker system is **well-architected** with:
+- ✅ Proper locking (`LockService`) for concurrency
+- ✅ Smart cache versioning (global + ori/rc + search)
+- ✅ Optimistic UI with rollback
+- ✅ Batched reads/writes in most places
+- ✅ Incremental sync for large datasets
+- ✅ Client-side filtering/search to reduce server calls
+- ✅ Sequence counters for race prevention
+
+**Top 3 Critical Fixes:**
+1. **P0-B1**: `submitRCAttendance` full sheet rewrite → **sparse updates** (biggest win)
+2. **P0-B2**: Split `getDashboardData` → **parallel granular endpoints** (biggest UX win)
+3. **P1-B5/B3/B4**: Column-limited reads + remove unnecessary sheet reads from dashboard load
+
+**Estimated Performance Gains:**
+| Metric | Current | After Phase 1 | After Phase 2 |
+|--------|---------|---------------|---------------|
+| Dashboard cold load | 2-4s | 1.5-2.5s | 800ms-1.2s |
+| Dashboard cached load | 50ms | 30ms | 20ms |
+| Orientation page load | 1-2s | 800ms | 600ms |
+| RC Attendance submit | 2-3s | 500ms | 500ms |
+| Interaction drawer open | 500-1000ms | 500ms | 50ms (cached) |
+| Form submit (matching) | 1-2s | 500ms | 500ms |
+
+The system is **production-ready** but these optimizations will significantly improve user experience, reduce quota consumption, and increase scalability headroom.

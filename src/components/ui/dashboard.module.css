@@ -1,0 +1,450 @@
+/* ═══════════════════════════════════
+   STAT CARDS
+═══════════════════════════════════ */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.statCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.statHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.statIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.statValue {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1;
+}
+
+.statSub {
+  font-size: 0.75rem;
+  color: var(--text-3);
+}
+
+/* ═══════════════════════════════════
+   COLOR VARIANTS FOR STAT CARDS
+═══════════════════════════════════ */
+.iconPrimary { background: var(--primary-dim); color: var(--primary); }
+.iconGreen   { background: var(--green-dim);   color: var(--green); }
+.iconRed     { background: var(--red-dim);     color: var(--red); }
+.iconOrange  { background: var(--orange-dim);  color: var(--orange); }
+.iconBlue    { background: var(--blue-dim);    color: var(--blue); }
+
+.valuePrimary { color: var(--primary); }
+.valueGreen   { color: var(--green); }
+.valueRed     { color: var(--red); }
+.valueOrange  { color: var(--orange); }
+
+/* ═══════════════════════════════════
+   SKELETON LOADER
+═══════════════════════════════════ */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--border) 25%, var(--bg-card-hover) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+.skeletonValue {
+  height: 36px;
+  width: 60%;
+}
+
+.skeletonLabel {
+  height: 12px;
+  width: 80%;
+}
+
+/* ═══════════════════════════════════
+   SECTION HEADER
+═══════════════════════════════════ */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.sectionCount {
+  font-size: 0.8rem;
+  color: var(--text-3);
+  background: var(--bg-input);
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+}
+
+/* ═══════════════════════════════════
+   TABLE
+═══════════════════════════════════ */
+.tableWrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.tableScrollBody {
+  flex: 1;
+  overflow: auto;
+}
+
+.tableControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.tableControlsLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.tableControlsRight {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 0.875rem;
+  transition: border-color 0.2s;
+  width: 280px;
+}
+
+.searchInput:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.filterSelect {
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 0.875rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 16px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.table td {
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr {
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.table tbody tr:hover {
+  background: var(--bg-card-hover);
+}
+
+/* ═══════════════════════════════════
+   BADGES
+═══════════════════════════════════ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badgeGreen   { background: var(--green-dim);  color: var(--green); }
+.badgeRed     { background: var(--red-dim);    color: var(--red); }
+.badgeOrange  { background: var(--orange-dim); color: var(--orange); }
+.badgeBlue    { background: var(--blue-dim);   color: var(--blue); }
+.badgePrimary { background: var(--primary-dim); color: var(--primary); }
+.badgeGray    { background: var(--bg-input);    color: var(--text-2); }
+
+/* ═══════════════════════════════════
+   EMPTY STATE
+═══════════════════════════════════ */
+.emptyState {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-3);
+}
+
+.emptyStateIcon {
+  margin: 0 auto 1rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--bg-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emptyStateTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 0.25rem;
+}
+
+.emptyStateSub {
+  font-size: 0.8rem;
+}
+
+/* ═══════════════════════════════════
+   PAGINATION
+═══════════════════════════════════ */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-3);
+  gap: 1rem;
+}
+
+.paginationBtns {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pageBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pageBtn:hover:not(:disabled) {
+  background: var(--primary-dim);
+  color: var(--primary);
+}
+
+.pageBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pageBtnActive {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.tableRowHover:hover { background-color: var(--primary-dim); }
+
+/* ═══════════════════════════════════
+   DRAWERS (Modals)
+═══════════════════════════════════ */
+.drawerOverlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 9999;
+  backdrop-filter: blur(3px); opacity: 0; pointer-events: none; transition: opacity 0.3s;
+}
+.drawerOverlayActive { opacity: 1; pointer-events: auto; }
+
+.drawer {
+  position: fixed; top: 0; right: 0; width: 100%; max-width: 520px; height: 100vh;
+  background: var(--bg-2); z-index: 10000;
+  transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
+  display: flex; flex-direction: column;
+}
+.drawerActive { transform: translateX(0); box-shadow: -8px 0 32px rgba(0,0,0,0.12); }
+
+.drawerHeader {
+  padding: 20px 24px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  flex-shrink: 0;
+}
+.drawerTitle { font-size: 17px; font-weight: 700; color: var(--text-1); }
+
+.drawerClose {
+  background: none; border: none; color: var(--text-2); cursor: pointer;
+  padding: 6px; border-radius: 50%; transition: background 0.2s;
+  display: flex; align-items: center; justify-content: center;
+}
+.drawerClose:hover { background: var(--bg-input); color: var(--text-1); }
+
+.drawerBody { flex: 1; overflow-y: auto; padding: 24px; }
+
+/* ═══════════════════════════════════
+   PROFILE (DRAWER)
+═══════════════════════════════════ */
+.profileAvatar {
+  width: 52px; height: 52px; border-radius: 50%; background: var(--primary);
+  color: white; display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 20px; flex-shrink: 0;
+}
+.cubAvatar { background: var(--orange); }
+
+.drawerHero { padding: 0 0 18px 0; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.drawerHeroTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.drawerHeroIdentity { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
+.drawerHeroName { font-size: 19px; font-weight: 700; color: var(--text-1); line-height: 1.2; }
+.drawerHeroMeta { font-size: 12px; color: var(--text-2); margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.drawerHeroMeta .dot { color: var(--text-3); }
+.drawerHeroBadges { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+.drawerHeroSubEnd { font-size: 11px; color: var(--text-3); margin-top: 2px; text-align: right; }
+
+.infoRow { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0; }
+.infoItem { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.infoItem strong { color: var(--text-1); font-weight: 600; }
+.infoItem svg { width: 13px; height: 13px; color: var(--text-3); flex-shrink: 0; }
+
+.drawerSection { margin-bottom: 20px; }
+.drawerSectionTitle {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+  color: var(--text-3); margin-bottom: 10px; padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.statChips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.statChip { background: var(--bg-input); border-radius: 10px; padding: 10px 12px; text-align: center; }
+.statChipVal { font-size: 16px; font-weight: 700; color: var(--text-1); line-height: 1; }
+.statChipLbl { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3); margin-top: 4px; }
+
+/* Mini Table */
+.miniTable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.miniTable th { padding: 8px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-3); background: var(--bg-input); border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; position: sticky; top: 0; z-index: 10; }
+.miniTable td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text-1); white-space: nowrap; }
+.miniTable tbody tr:last-child td { border-bottom: none; }
+
+/* ═══════════════════════════════════
+   BUTTONS (shared)
+═══════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none;
+}
+.btnPrimary {
+  background: var(--primary); color: white;
+}
+.btnPrimary:hover { background: var(--primary-light); }
+.btnOutline {
+  background: transparent; border: 1.5px solid var(--border); color: var(--text-2);
+}
+.btnOutline:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-dim); }
+
+/* Form Input (shared) */
+.formInput {
+  width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-input); color: var(--text-1); font-size: 0.875rem;
+  font-family: inherit; transition: border-color 0.2s;
+}
+.formInput:focus { border-color: var(--primary); outline: none; }
+.formInput::placeholder { color: var(--text-3); }
+
