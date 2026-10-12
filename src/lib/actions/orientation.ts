@@ -33,35 +33,51 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
 
-  const query = supabase
-    .from('orientation')
-    .select(`
-      *,
-      master_cubs(
-        cub_first_name,
-        cub_last_name,
-        parent_first_name,
-        parent_last_name,
-        parent_phone,
-        parent_email,
-        date_onboarded,
-        cubs(
-          relationship_owner,
-          segment,
-          sub_status,
+  let allData: any[] = [];
+  let from = 0;
+  const size = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const query = supabase
+      .from('orientation')
+      .select(`
+        *,
+        master_cubs(
+          cub_first_name,
+          cub_last_name,
+          parent_first_name,
+          parent_last_name,
+          parent_phone,
+          parent_email,
           date_onboarded,
-          cumulative_points,
-          last_reading_activity,
-          reading_circle_category
+          cubs(
+            relationship_owner,
+            segment,
+            sub_status,
+            date_onboarded,
+            cumulative_points,
+            last_reading_activity,
+            reading_circle_category
+          )
         )
-      )
-    `)
-    .order('created_at', { ascending: false });
+      `)
+      .order('created_at', { ascending: false })
+      .range(from, from + size - 1);
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
 
-  let results = (data ?? []).map((row: any) => ({
+    if (data && data.length > 0) {
+      allData.push(...data);
+      from += size;
+      hasMore = data.length === size;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  let results = (allData ?? []).map((row: any) => ({
     ...row,
     cubs: {
       relationship_owner: row.master_cubs?.cubs?.relationship_owner,

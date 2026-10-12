@@ -110,26 +110,42 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
 
-  const query = supabase
-    .from('reading_circle')
-    .select(`
-      *,
-      master_cubs(
-        cub_first_name,
-        cub_last_name,
-        parent_first_name,
-        parent_last_name,
-        parent_phone,
-        parent_email,
-        cubs(relationship_owner, segment)
-      )
-    `)
-    .order('created_at', { ascending: false });
+  let allData: any[] = [];
+  let from = 0;
+  const size = 1000;
+  let hasMore = true;
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  while (hasMore) {
+    const query = supabase
+      .from('reading_circle')
+      .select(`
+        *,
+        master_cubs(
+          cub_first_name,
+          cub_last_name,
+          parent_first_name,
+          parent_last_name,
+          parent_phone,
+          parent_email,
+          cubs(relationship_owner, segment)
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .range(from, from + size - 1);
 
-  let results = (data ?? []).map((row: any) => ({
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    if (data && data.length > 0) {
+      allData.push(...data);
+      from += size;
+      hasMore = data.length === size;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  let results = (allData ?? []).map((row: any) => ({
     ...row,
     cubs: {
       relationship_owner: row.master_cubs?.cubs?.relationship_owner,

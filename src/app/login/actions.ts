@@ -29,11 +29,7 @@ export async function login(formData: FormData) {
 
   revalidatePath('/', 'layout');
 
-  if (profile?.role === 'admin') {
-    return { success: true, redirectUrl: '/settings' };
-  } else {
-    return { success: true, redirectUrl: '/dashboard' };
-  }
+  return { success: true, redirectUrl: '/dashboard' };
 }
 
 export async function resetPassword(formData: FormData) {
