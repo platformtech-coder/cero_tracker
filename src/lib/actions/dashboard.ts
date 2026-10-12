@@ -18,15 +18,49 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   
-  // Effective name: admin acting as rep via filter, or own name
+  // Effective name: admin acting as rep via filter, or rep's own assigned name
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilterByRep = !isAdmin || isFilteredRep;
+  const targetRep = shouldFilterByRep ? effectiveName : null;
 
-  // Total Cubs
-  let cubsQuery = supabase.from('cubs').select('sub_status, flag, sub_end_date', { count: 'exact' });
-  if (shouldFilterByRep) cubsQuery = cubsQuery.eq('relationship_owner', effectiveName!);
-  const { data: cubsData, count: totalCubs } = await cubsQuery;
+  // 1. Try high-performance Postgres RPC get_dashboard_stats
+  const { data: rpcStats, error: rpcError } = await supabase.rpc('get_dashboard_stats', {
+    p_rep_name: targetRep,
+  });
+
+  if (!rpcError && rpcStats) {
+    return rpcStats as DashboardStats;
+  }
+
+  if (rpcError) {
+    console.error('get_dashboard_stats RPC failed, using paginated query fallback:', rpcError);
+  }
+
+  // 2. Resilient fallback with full pagination across all records (bypassing 1,000-row PostgREST limit)
+  let allCubs: any[] = [];
+  let from = 0;
+  const size = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    let cubsQuery = supabase
+      .from('cubs')
+      .select('sub_status, flag, sub_end_date')
+      .range(from, from + size - 1);
+
+    if (shouldFilterByRep) cubsQuery = cubsQuery.eq('relationship_owner', effectiveName!);
+    const { data: chunk, error } = await cubsQuery;
+    if (error) break;
+
+    if (chunk && chunk.length > 0) {
+      allCubs.push(...chunk);
+      from += size;
+      hasMore = chunk.length === size;
+    } else {
+      hasMore = false;
+    }
+  }
 
   let activeSubs = 0, expiredSubs = 0, almostExpiringWeek = 0, almostExpiringMonth = 0, flaggedCubs = 0;
   const today = new Date();
@@ -34,10 +68,11 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
   const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
   const nextMonth = new Date(today); nextMonth.setMonth(today.getMonth() + 1);
 
-  for (const cub of (cubsData ?? [])) {
-    if (cub.sub_status === 'active') activeSubs++;
-    else if (cub.sub_status === 'expired') expiredSubs++;
-    else if (cub.sub_status === 'almost expiring') {
+  for (const cub of allCubs) {
+    const status = (cub.sub_status || '').toLowerCase().trim();
+    if (status === 'active') activeSubs++;
+    else if (status === 'expired') expiredSubs++;
+    else if (status === 'almost expiring') {
       activeSubs++; // Active cubs includes almost expiring
       const endDate = cub.sub_end_date ? new Date(cub.sub_end_date) : null;
       if (endDate) {
@@ -45,7 +80,7 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
         if (endDate >= today && endDate <= nextMonth) almostExpiringMonth++;
       }
     }
-    if (cub.flag) flaggedCubs++;
+    if (cub.flag && cub.flag.trim() !== '') flaggedCubs++;
   }
 
   // Total Families
@@ -77,7 +112,7 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
     .eq('form_source', 'Orientation Signup');
 
   return {
-    totalCubs: totalCubs ?? 0,
+    totalCubs: allCubs.length,
     totalParents: totalParents ?? 0,
     activeSubs,
     expiredSubs,
@@ -99,13 +134,14 @@ export async function getDashboardActions(repFilter?: string): Promise<Action[]>
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, full_name')
+    .select('role, full_name, sheet_rep_name')
     .eq('id', user.id)
     .single();
 
   const isAdmin = profile?.role === 'admin';
+  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : profile?.full_name;
+  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
 
   let query = supabase
@@ -121,7 +157,7 @@ export async function getDashboardActions(repFilter?: string): Promise<Action[]>
   return (data as Action[]) ?? [];
 }
 
-// ─── Dashboard Cubs ────────────────────────────────────────────
+// ─── Dashboard Cubs (Paginated to handle >1,000 cubs) ───────────
 export async function getDashboardCubs(repFilter?: string): Promise<(Cub & { cub_first_name: string; cub_last_name: string })[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -129,38 +165,54 @@ export async function getDashboardCubs(repFilter?: string): Promise<(Cub & { cub
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, full_name')
+    .select('role, full_name, sheet_rep_name')
     .eq('id', user.id)
     .single();
 
   const isAdmin = profile?.role === 'admin';
+  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : profile?.full_name;
+  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
 
-  // Join master_cubs for name/parent fields
-  let query = supabase
-    .from('cubs')
-    .select(`
-      *,
-      master_cubs (
-        cub_first_name,
-        cub_last_name,
-        parent_first_name,
-        parent_last_name,
-        parent_phone,
-        parent_email
-      )
-    `)
-    .order('relationship_owner', { ascending: true });
+  let allData: any[] = [];
+  let from = 0;
+  const size = 1000;
+  let hasMore = true;
 
-  if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
+  while (hasMore) {
+    let query = supabase
+      .from('cubs')
+      .select(`
+        *,
+        master_cubs (
+          cub_first_name,
+          cub_last_name,
+          parent_first_name,
+          parent_last_name,
+          parent_phone,
+          parent_email
+        )
+      `)
+      .order('relationship_owner', { ascending: true })
+      .range(from, from + size - 1);
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+    if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    if (data && data.length > 0) {
+      allData.push(...data);
+      from += size;
+      hasMore = data.length === size;
+    } else {
+      hasMore = false;
+    }
+  }
 
   // Flatten the joined data
-  return (data ?? []).map((row: any) => ({
+  return allData.map((row: any) => ({
     ...row,
     cub_first_name: row.master_cubs?.cub_first_name ?? '',
     cub_last_name: row.master_cubs?.cub_last_name ?? '',
@@ -172,7 +224,7 @@ export async function getDashboardCubs(repFilter?: string): Promise<(Cub & { cub
   }));
 }
 
-// ─── Dashboard Families ────────────────────────────────────────
+// ─── Dashboard Families (Paginated to handle >1,000 families) ───
 export async function getDashboardFamilies(repFilter?: string): Promise<Family[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -180,25 +232,43 @@ export async function getDashboardFamilies(repFilter?: string): Promise<Family[]
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, full_name')
+    .select('role, full_name, sheet_rep_name')
     .eq('id', user.id)
     .single();
 
   const isAdmin = profile?.role === 'admin';
+  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : profile?.full_name;
+  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
 
-  let query = supabase
-    .from('families')
-    .select('*')
-    .order('parent_last_name', { ascending: true });
+  let allData: any[] = [];
+  let from = 0;
+  const size = 1000;
+  let hasMore = true;
 
-  if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
+  while (hasMore) {
+    let query = supabase
+      .from('families')
+      .select('*')
+      .order('parent_last_name', { ascending: true })
+      .range(from, from + size - 1);
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data as Family[]) ?? [];
+    if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    if (data && data.length > 0) {
+      allData.push(...data);
+      from += size;
+      hasMore = data.length === size;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return (allData as Family[]) ?? [];
 }
 
 // ─── Get all rep names (dynamic from Directory) ─────────────────
