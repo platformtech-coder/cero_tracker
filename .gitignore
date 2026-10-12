@@ -51,3 +51,7 @@ test-sync.js
 # Supabase CLI temp
 supabase/.temp/
 
+# Legacy Apps Script folder
+cero_tracker/
+
+

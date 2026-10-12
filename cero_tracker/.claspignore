@@ -1,6 +1,0 @@
-**/*.md
-.agents/**
-.clasp.json
-eo_reading_report_dashboard/**
-
-.kilo/**
