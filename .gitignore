@@ -48,5 +48,6 @@ cer-dashboard-sheet-sync-*.json
 scratch/
 test-sync.js
 
-# Supabase CLI temp files
+# Supabase CLI temp
 supabase/.temp/
+
