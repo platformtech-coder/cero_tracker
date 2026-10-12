@@ -381,7 +381,6 @@ export function FormsSetupTab({ initialConfig }: { initialConfig: FormsConfig })
 
   const handleRebuildConfirm = async () => {
     setIsRebuilding(true);
-    setShowRebuildConfirm(false);
     try {
       // Save first so rebuild uses latest values
       await saveFormsConfig(buildConfig());
@@ -392,6 +391,7 @@ export function FormsSetupTab({ initialConfig }: { initialConfig: FormsConfig })
       toast.error("Error: " + e.message);
     } finally {
       setIsRebuilding(false);
+      setShowRebuildConfirm(false);
     }
   };
 

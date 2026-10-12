@@ -125,7 +125,7 @@ export function ConfirmModal({
 
   return (
     <>
-      <div style={modalOverlayStyle} onClick={onClose} />
+      <div style={modalOverlayStyle} onClick={(e) => { e.stopPropagation(); onClose(); }} />
       <div style={modalContainerStyle} onClick={(e) => e.stopPropagation()}>
         <div style={modalHeaderStyle}>
           <h2 style={modalTitleStyle}>{title}</h2>
