@@ -340,10 +340,38 @@ export async function POST(req: NextRequest) {
   // 5. Normalise phone
   const normalisedPhone = normalisePhone(payload.parent_phone);
 
-  // 6. Insert into pending_signups
+  // 6. Resolve parent_name if missing or mistakenly sent as phone digits
+  let cleanParentName = (payload.parent_name || '').trim();
+  const isParentNameDigits = /^[\d\s+\-()]{6,}$/.test(cleanParentName) || cleanParentName === payload.parent_phone;
+  if (!cleanParentName || isParentNameDigits) {
+    if (match.matched_cub_id) {
+      const { data: cubMatch } = await supabase
+        .from('master_cubs')
+        .select('parent_first_name, parent_last_name')
+        .eq('cub_id', match.matched_cub_id)
+        .limit(1)
+        .maybeSingle();
+      if (cubMatch && (cubMatch.parent_first_name || cubMatch.parent_last_name)) {
+        cleanParentName = `${cubMatch.parent_first_name || ''} ${cubMatch.parent_last_name || ''}`.trim();
+      }
+    }
+    if ((!cleanParentName || isParentNameDigits) && normalisedPhone) {
+      const { data: phoneMatch } = await supabase
+        .from('master_cubs')
+        .select('parent_first_name, parent_last_name')
+        .eq('parent_phone', normalisedPhone)
+        .limit(1)
+        .maybeSingle();
+      if (phoneMatch && (phoneMatch.parent_first_name || phoneMatch.parent_last_name)) {
+        cleanParentName = `${phoneMatch.parent_first_name || ''} ${phoneMatch.parent_last_name || ''}`.trim();
+      }
+    }
+  }
+
+  // 7. Insert into pending_signups
   const { error: insertErr } = await supabase.from('pending_signups').insert({
     form_source: payload.form_source,
-    parent_name: (payload.parent_name || '').trim(),
+    parent_name: cleanParentName,
     parent_phone: normalisedPhone,
     cub_name: payload.cub_name.trim(),
     library_card: payload.library_card?.trim() || null,

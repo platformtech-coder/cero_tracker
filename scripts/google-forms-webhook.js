@@ -154,11 +154,11 @@ function processReadingCircleSubmission(response, formSource) {
 
     // Parent Fields
     if (!title.match(/Cub\s*\d/i)) {
-      if (lower.includes('parent') || lower.includes('your name') || lower.includes('full name')) {
-        parentName = ans;
-      }
-      if (lower.includes('phone') || lower.includes('whatsapp') || lower.includes('contact')) {
+      var isPhone = lower.includes('phone') || lower.includes('whatsapp') || lower.includes('contact');
+      if (isPhone) {
         parentPhone = ans;
+      } else if (lower.includes('name') || lower.includes('parent') || lower.includes('guardian') || lower.includes('full name')) {
+        parentName = ans;
       }
       return;
     }

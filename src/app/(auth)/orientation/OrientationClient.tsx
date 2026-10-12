@@ -829,9 +829,8 @@ export default function OrientationClient({
                   <thead>
                     <tr>
                       <th>Submitted</th>
-                      <th>Cub Name</th>
-                      <th>Parent Name</th>
-                      <th>Phone</th>
+                      <th>Cub</th>
+                      <th>Parent</th>
                       <th>Preferred Day</th>
                       <th>Match Confidence</th>
                       <th style={{ width: 36, textAlign: 'right' }}></th>
@@ -848,14 +847,24 @@ export default function OrientationClient({
                         <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
                         <td>
                           <div style={{ fontWeight: 600 }}>{p.cub_name}</div>
-                          {p.matched_cub_id && (
-                            <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>
-                              Matched: {p.matched_cub_id}
-                            </div>
-                          )}
+                          <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>
+                            {p.matched_cub_id ? (
+                              `Matched: ${p.matched_cub_id}`
+                            ) : p.library_card ? (
+                              `ID: ${p.library_card}`
+                            ) : (
+                              <span style={{ color: 'var(--orange, #eab308)', fontWeight: 500 }}>Unlinked</span>
+                            )}
+                          </div>
                         </td>
-                        <td>{p.parent_name}</td>
-                        <td style={{ fontSize: '0.82rem' }}>{p.parent_phone}</td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>
+                            {p.parent_name && p.parent_name !== p.parent_phone && !/^[\d\s+\-()]{6,}$/.test(p.parent_name)
+                              ? p.parent_name
+                              : '—'}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{p.parent_phone || '—'}</div>
+                        </td>
                         <td style={{ fontSize: '0.82rem' }}>{p.selected_session || '—'}</td>
                         <td><ConfidenceBadge confidence={p.match_confidence} /></td>
                         <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>

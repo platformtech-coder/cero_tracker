@@ -133,6 +133,48 @@ export async function getPendingOrientationSignups(repFilter?: string): Promise<
 
   let results = data as PendingSignup[];
 
+  // If any signup has a phone number as parent_name or missing parent_name, enrich from master_cubs
+  const needsParentName = results.filter(
+    r => !r.parent_name || r.parent_name === r.parent_phone || /^[\d\s+\-()]{6,}$/.test(r.parent_name.trim())
+  );
+  if (needsParentName.length > 0) {
+    const cubIds = needsParentName.map(r => r.matched_cub_id).filter(Boolean) as string[];
+    const phones = needsParentName.map(r => r.parent_phone).filter(Boolean);
+
+    const parentMapByCubId = new Map<string, string>();
+    const parentMapByPhone = new Map<string, string>();
+
+    if (cubIds.length > 0) {
+      const { data: cubMatches } = await supabase
+        .from('master_cubs')
+        .select('cub_id, parent_first_name, parent_last_name')
+        .in('cub_id', cubIds);
+      (cubMatches || []).forEach(c => {
+        const fullName = `${c.parent_first_name || ''} ${c.parent_last_name || ''}`.trim();
+        if (fullName) parentMapByCubId.set(c.cub_id, fullName);
+      });
+    }
+
+    if (phones.length > 0) {
+      const { data: phoneMatches } = await supabase
+        .from('master_cubs')
+        .select('parent_phone, parent_first_name, parent_last_name')
+        .in('parent_phone', phones);
+      (phoneMatches || []).forEach(p => {
+        const fullName = `${p.parent_first_name || ''} ${p.parent_last_name || ''}`.trim();
+        if (fullName && p.parent_phone) parentMapByPhone.set(p.parent_phone, fullName);
+      });
+    }
+
+    results = results.map(r => {
+      const isBadName = !r.parent_name || r.parent_name === r.parent_phone || /^[\d\s+\-()]{6,}$/.test(r.parent_name.trim());
+      if (!isBadName) return r;
+      const resolved = (r.matched_cub_id && parentMapByCubId.get(r.matched_cub_id)) ||
+                       (r.parent_phone && parentMapByPhone.get(r.parent_phone));
+      return resolved ? { ...r, parent_name: resolved } : r;
+    });
+  }
+
   if (shouldFilter) {
     const { data: cubs } = await supabase
       .from('cubs')

@@ -338,11 +338,10 @@ export default function ReadingCircleClient({
                 <thead>
                   <tr>
                     <th>Date Logged</th>
-                    <th>Parent</th>
                     <th>Cub</th>
+                    <th>Parent</th>
                     <th>Session</th>
                     <th>Grade</th>
-                    <th>Matched Cub</th>
                     <th>Confidence</th>
                     <th style={{ width: 30 }}></th>
                   </tr>
@@ -360,17 +359,27 @@ export default function ReadingCircleClient({
                         <div style={{ color: 'var(--text-3)', fontSize: '0.72rem' }}>{formatTime(p.timestamp)}</div>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{p.parent_name}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{p.parent_phone}</div>
-                      </td>
-                      <td><div style={{ fontWeight: 600 }}>{p.cub_name}</div></td>
-                      <td style={{ fontSize: '0.82rem' }}>{p.selected_session || '—'}</td>
-                      <td style={{ fontSize: '0.82rem' }}>{p.grade || '—'}</td>
-                      <td>
-                        <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                          {p.matched_cub_id || <span style={{ color: 'var(--orange, #eab308)', fontWeight: 600 }}>Unlinked</span>}
+                        <div style={{ fontWeight: 600 }}>{p.cub_name}</div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>
+                          {p.matched_cub_id ? (
+                            `Matched: ${p.matched_cub_id}`
+                          ) : p.library_card ? (
+                            `ID: ${p.library_card}`
+                          ) : (
+                            <span style={{ color: 'var(--orange, #eab308)', fontWeight: 500 }}>Unlinked</span>
+                          )}
                         </div>
                       </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>
+                          {p.parent_name && p.parent_name !== p.parent_phone && !/^[\d\s+\-()]{6,}$/.test(p.parent_name)
+                            ? p.parent_name
+                            : '—'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{p.parent_phone || '—'}</div>
+                      </td>
+                      <td style={{ fontSize: '0.82rem' }}>{p.selected_session || '—'}</td>
+                      <td style={{ fontSize: '0.82rem' }}>{p.grade || '—'}</td>
                       <td><ConfidenceBadge confidence={p.match_confidence} /></td>
                       <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>
                         <ChevronRight size={15} />

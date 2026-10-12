@@ -151,23 +151,29 @@ export default function ProcessPendingDrawer({
   };
 
   const handleRejectConfirm = () => {
-    setShowRejectConfirm(false);
     startTransition(async () => {
-      const payload = {
-        id: pending.id,
-        status: 'Rejected' as const,
-      };
+      try {
+        const payload = {
+          id: pending.id,
+          status: 'Rejected' as const,
+        };
 
-      const res = type === 'orientation'
-        ? await processOrientationSignup(payload)
-        : await processRCSignup(payload);
+        const res = type === 'orientation'
+          ? await processOrientationSignup(payload)
+          : await processRCSignup(payload);
 
-      if (res.success) {
-        toast.info('Signup marked as Rejected');
-        onSuccess(pending.id, 'Rejected');
-        onClose();
-      } else {
-        toast.error('Rejection failed: ' + res.error);
+        if (res.success) {
+          toast.info('Signup marked as Rejected');
+          setShowRejectConfirm(false);
+          onSuccess(pending.id, 'Rejected');
+          onClose();
+        } else {
+          toast.error('Rejection failed: ' + res.error);
+          setShowRejectConfirm(false);
+        }
+      } catch (e: any) {
+        toast.error('Rejection failed: ' + e?.message || 'Unknown error');
+        setShowRejectConfirm(false);
       }
     });
   };
@@ -653,6 +659,7 @@ export default function ProcessPendingDrawer({
         message="Are you sure you want to reject this signup? This will mark it as Rejected."
         confirmText="Reject"
         variant="danger"
+        isLoading={isPendingAction}
       />
     </>
   );
