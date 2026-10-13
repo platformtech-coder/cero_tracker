@@ -24,12 +24,13 @@ export default async function OrientationPage({ searchParams }: PageProps) {
 
   const isAdmin = profile?.role === 'admin';
   const { rep: repParam } = await searchParams;
-  const repFilter = isAdmin && repParam ? repParam : undefined;
+  // All users can filter by rep; the server actions apply the filter only when set.
+  const repFilter = repParam && repParam !== 'All Reps' ? repParam : undefined;
 
   const [master, pending, allReps, scorecardMetrics, pendingRC] = await Promise.all([
     getOrientationMaster(repFilter),
     getPendingOrientationSignups(repFilter),
-    isAdmin ? getAllReps() : Promise.resolve([]),
+    getAllReps(),
     getOrientationScorecardMetrics(null, null, repFilter),
     getGenCommPendingRC(repFilter),
   ]);

@@ -121,7 +121,8 @@ export default function OrientationJourneyDrawer({
       }
 
       toast.success('Orientation journey updated successfully!');
-      onUpdated({ ...updates, stage: res.stage?.stage, stage_status: res.stage?.stage_status, next_stage: res.stage?.next_stage });
+      const { rc_session: _, ...orientationFields } = updates;
+      onUpdated({ ...orientationFields, stage: res.stage?.stage, stage_status: res.stage?.stage_status, next_stage: res.stage?.next_stage });
       onClose();
     });
   };

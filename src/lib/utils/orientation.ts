@@ -145,7 +145,7 @@ export function autoSetDates(
   }>
 ) {
   const today = new Date().toISOString().slice(0, 10);
-  const result = { ...updates };
+  const { rc_session, ...result } = updates;
 
   // Only set booked_date if neither the update nor the existing DB row has one
   if (result.booked_status && !result.booked_date && !current?.booked_date) {
@@ -161,7 +161,7 @@ export function autoSetDates(
   }
 
   if (result.rc_selected_status && !result.rc_selected_date && !current?.rc_selected_date) {
-    result.rc_selected_date = result.rc_session ? getNearestDateForDay(result.rc_session) : today;
+    result.rc_selected_date = rc_session ? getNearestDateForDay(rc_session) : today;
   }
 
   return result;

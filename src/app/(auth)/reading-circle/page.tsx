@@ -25,12 +25,13 @@ export default async function ReadingCirclePage({ searchParams }: PageProps) {
 
   const isAdmin = profile?.role === 'admin';
   const { rep: repParam } = await searchParams;
-  const repFilter = isAdmin && repParam ? repParam : undefined;
+  // All users can filter by rep; the server actions apply the filter only when set.
+  const repFilter = repParam && repParam !== 'All Reps' ? repParam : undefined;
 
   const [roster, pending, allReps, pendingRC, availableSessions] = await Promise.all([
     getReadingCircleRoster(repFilter),
     getPendingRCSignups(repFilter),
-    isAdmin ? getAllReps() : Promise.resolve([]),
+    getAllReps(),
     getGenCommPendingRC(repFilter),
     getAvailableRCSessions(),
   ]);

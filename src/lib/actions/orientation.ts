@@ -21,17 +21,9 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
-
-  const isAdmin = profile?.role === 'admin';
-  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  // Orientation is a whole-team responsibility — all reps see all cubs.
+  // The optional repFilter is used only when an admin (or rep) explicitly filters by rep.
+  const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
 
   let allData: any[] = [];
   let from = 0;
@@ -97,8 +89,9 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
     master_cubs: undefined,
   }));
 
-  if (shouldFilter) {
-    results = results.filter(r => r.cubs.relationship_owner === effectiveName);
+  // Optional rep filter — applied client-side to preserve full dataset in memory.
+  if (repFilterValue) {
+    results = results.filter(r => r.cubs.relationship_owner === repFilterValue);
   }
 
   return results;
@@ -110,17 +103,8 @@ export async function getPendingOrientationSignups(repFilter?: string): Promise<
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
-
-  const isAdmin = profile?.role === 'admin';
-  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  // Pending orientation signups are visible to the whole team.
+  const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
 
   const { data, error } = await supabase
     .from('pending_signups')
@@ -175,12 +159,12 @@ export async function getPendingOrientationSignups(repFilter?: string): Promise<
     });
   }
 
-  if (shouldFilter) {
+  if (repFilterValue) {
     const { data: cubs } = await supabase
       .from('cubs')
       .select('cub_id')
-      .eq('relationship_owner', effectiveName);
-    const ownerCubIds = new Set((cubs ?? []).map(c => c.cub_id));
+      .eq('relationship_owner', repFilterValue);
+    const ownerCubIds = new Set((cubs ?? []).map((c: any) => c.cub_id));
     results = results.filter(r => {
       if (!r.matched_cub_id) return false;
       return ownerCubIds.has(r.matched_cub_id);
@@ -370,6 +354,7 @@ export async function updateCubJourney(formData: z.infer<typeof UpdateJourneySch
     // Only write completion_date if it's newly set; preserve existing value otherwise
     completion_date: stageResult.completion_date ?? current.completion_date ?? null,
   };
+  delete updatePayload.rc_session;
   if (rawOrientationUpdates.session !== undefined) {
     updatePayload.session = rawOrientationUpdates.session || null;
   }
@@ -505,17 +490,8 @@ export async function getGenCommPendingRC(repFilter?: string): Promise<{
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
-
-  const isAdmin = profile?.role === 'admin';
-  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  // Gen. Comm pending RC — whole team sees all cubs; repFilter narrows when explicitly set.
+  const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
 
   // Fetch enrolled RC cub IDs and all Gen. Comm cubs in parallel
   const [rcResult, cubsResult] = await Promise.all([
@@ -531,7 +507,7 @@ export async function getGenCommPendingRC(repFilter?: string): Promise<{
         .in('sub_status', ['active', 'almost expiring'])
         .order('date_onboarded', { ascending: false });
 
-      if (shouldFilter) q = q.eq('relationship_owner', effectiveName!);
+      if (repFilterValue) q = q.eq('relationship_owner', repFilterValue);
       return q;
     })(),
   ]);

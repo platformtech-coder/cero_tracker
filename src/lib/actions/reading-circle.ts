@@ -98,17 +98,9 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
-
-  const isAdmin = profile?.role === 'admin';
-  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  // Reading Circle is a whole-team responsibility — all reps see all cubs.
+  // The optional repFilter narrows results only when explicitly set.
+  const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
 
   let allData: any[] = [];
   let from = 0;
@@ -160,8 +152,8 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
     master_cubs: undefined,
   }));
 
-  if (shouldFilter) {
-    results = results.filter(r => r.cubs.relationship_owner === effectiveName);
+  if (repFilterValue) {
+    results = results.filter(r => r.cubs.relationship_owner === repFilterValue);
   }
 
   return results;
@@ -189,17 +181,8 @@ export async function getPendingRCSignups(repFilter?: string): Promise<PendingSi
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
-
-  const isAdmin = profile?.role === 'admin';
-  const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  // Pending RC signups are visible to the whole team.
+  const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
 
   const { data, error } = await supabase
     .from('pending_signups')
@@ -254,12 +237,12 @@ export async function getPendingRCSignups(repFilter?: string): Promise<PendingSi
     });
   }
 
-  if (shouldFilter) {
+  if (repFilterValue) {
     const { data: cubs } = await supabase
       .from('cubs')
       .select('cub_id')
-      .eq('relationship_owner', effectiveName);
-    const ownerCubIds = new Set((cubs ?? []).map(c => c.cub_id));
+      .eq('relationship_owner', repFilterValue);
+    const ownerCubIds = new Set((cubs ?? []).map((c: any) => c.cub_id));
     results = results.filter(r => {
       if (!r.matched_cub_id) return false;
       return ownerCubIds.has(r.matched_cub_id);

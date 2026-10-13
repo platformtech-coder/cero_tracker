@@ -244,7 +244,7 @@ function ScorecardStatsPanel({
             {isPending && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />}
           </div>
 
-          {isAdmin && allReps.length > 0 && (
+          {allReps.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Rep:</span>
               <select
