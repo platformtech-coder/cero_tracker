@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { Profile } from '@/lib/types';
 import { 
@@ -11,10 +11,25 @@ import {
   deleteUser,
   updateUserProfile
 } from '@/lib/actions/settings';
+import { saveFormsConfig, saveFormsPartialConfig, rebuildForms } from '@/lib/actions/forms';
+import type { FormsConfig, SessionConfig, GradeMappingEntry } from '@/lib/constants/forms';
+import {
+  KNOWN_ORI_SESSION_ITEM_ID,
+  KNOWN_RC_LOWER_ITEM_IDS,
+  KNOWN_RC_UPPER_ITEM_IDS,
+  DEFAULT_ORI_SESSIONS,
+  DEFAULT_RC_SESSIONS_LOWER,
+  DEFAULT_RC_SESSIONS_UPPER,
+} from '@/lib/constants/forms';
+import { extractSessionDay } from '@/lib/utils/rc';
 import { toast } from 'sonner';
-import { Loader2, PlusCircle, Save, Edit2, Trash2, X, User, Mail, Lock, Shield, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Loader2, PlusCircle, Save, Edit2, Trash2, X, User, Mail, Lock,
+  Shield, ChevronLeft, ChevronRight, Plus, Wrench, ChevronDown, CheckCircle2,
+} from 'lucide-react';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import styles from '../engagements/engagements.module.css';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 interface ConfigItem {
   id: number;
@@ -29,6 +44,7 @@ interface Props {
   config: ConfigItem[];
   profile: Profile;
   repNames: string[];
+  formsConfig: FormsConfig | null;
 }
 
 const INTERACTION_CATEGORIES = [
@@ -37,14 +53,400 @@ const INTERACTION_CATEGORIES = [
   { key: 'status', label: 'Interaction Status' },
 ] as const;
 
-import { ConfirmModal } from '@/components/ui/ConfirmModal';
+// ─── Session Constants ──────────────────────────────────────────
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const GRADES = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
-export default function SettingsClient({ profiles, config, profile, repNames }: Props) {
+// ─── Session Sub-components ────────────────────────────────────
+
+function SessionTextInput({ value, onChange, placeholder, mono }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean;
+}) {
+  return (
+    <input
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8,
+        background: 'var(--bg-input)', color: 'var(--text-1)', fontSize: 13,
+        fontFamily: mono ? 'monospace' : 'inherit', boxSizing: 'border-box',
+      }}
+    />
+  );
+}
+
+function SessionDaySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: '100%', padding: '8px 32px 8px 10px', border: '1px solid var(--border)', borderRadius: 8,
+          background: 'var(--bg-input)', color: 'var(--text-1)', fontSize: 13,
+          appearance: 'none', cursor: 'pointer', boxSizing: 'border-box',
+        }}
+      >
+        {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+    </div>
+  );
+}
+
+function SessionBuilder({
+  sessions,
+  onChange,
+  addLabel,
+  hint,
+}: {
+  sessions: SessionConfig[];
+  onChange: (s: SessionConfig[]) => void;
+  addLabel: string;
+  hint?: string;
+}) {
+  const update = (idx: number, field: keyof SessionConfig, val: string) => {
+    onChange(sessions.map((s, i) => i === idx ? { ...s, [field]: val } : s));
+  };
+  const remove = (idx: number) => onChange(sessions.filter((_, i) => i !== idx));
+  const add = () => onChange([...sessions, { day: 'Saturday', startTime: '9:00 am', endTime: '9:45 am' }]);
+
+  return (
+    <div>
+      {hint && <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 12px 0' }}>{hint}</p>}
+      {sessions.length === 0 && (
+        <div style={{
+          padding: '12px 16px', background: 'var(--bg)', border: '1px dashed var(--border)',
+          borderRadius: 8, fontSize: 12, color: 'var(--text-3)', marginBottom: 12,
+        }}>
+          No sessions added yet. Click "{addLabel}" to add one.
+        </div>
+      )}
+      {sessions.map((s, i) => (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+          <div>
+            {i === 0 && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>Day</div>}
+            <SessionDaySelect value={s.day} onChange={v => update(i, 'day', v)} />
+          </div>
+          <div>
+            {i === 0 && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>Start Time</div>}
+            <SessionTextInput value={s.startTime} onChange={v => update(i, 'startTime', v)} placeholder="7:00 pm" />
+          </div>
+          <div>
+            {i === 0 && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>End Time</div>}
+            <SessionTextInput value={s.endTime} onChange={v => update(i, 'endTime', v)} placeholder="8:00 pm" />
+          </div>
+          <button
+            onClick={() => remove(i)}
+            style={{ padding: '8px 10px', background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, cursor: 'pointer', color: 'var(--red)', display: 'flex', alignItems: 'center', marginTop: i === 0 ? 20 : 0 }}
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      ))}
+      <div style={{ marginTop: 8 }}>
+        <button
+          onClick={add}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+            background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 8,
+            color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          <Plus size={13} /> {addLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GradeMappingSessionSelect({
+  value, onChange, lowerOptions, upperOptions,
+}: { value: string; onChange: (v: string) => void; lowerOptions: string[]; upperOptions: string[] }) {
+  const allKnown = [...lowerOptions, ...upperOptions];
+  const isCustom = value && !allKnown.includes(value);
+  return (
+    <div style={{ position: 'relative' }}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: '100%', padding: '8px 32px 8px 10px', border: '1px solid var(--border)', borderRadius: 8,
+          background: 'var(--bg-input)', color: 'var(--text-1)', fontSize: 13,
+          appearance: 'none', cursor: 'pointer', boxSizing: 'border-box',
+        }}
+      >
+        {isCustom && <option value={value}>{value} (Current / Legacy)</option>}
+        {lowerOptions.length > 0 && (
+          <optgroup label="Grades 1–4 Sessions (Lower)">
+            {lowerOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </optgroup>
+        )}
+        {upperOptions.length > 0 && (
+          <optgroup label="Grades 5–8 Sessions (Upper)">
+            {upperOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </optgroup>
+        )}
+        {lowerOptions.length === 0 && upperOptions.length === 0 && (
+          <option value="">No sessions configured yet</option>
+        )}
+      </select>
+      <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+    </div>
+  );
+}
+
+function GradeMappingBuilder({
+  mapping, onChange, lowerSessions, upperSessions,
+}: {
+  mapping: GradeMappingEntry[];
+  onChange: (m: GradeMappingEntry[]) => void;
+  lowerSessions: SessionConfig[];
+  upperSessions: SessionConfig[];
+}) {
+  const fmt = (s: SessionConfig) => `${s.day} ${s.startTime} – ${s.endTime}`.trim();
+  const lowerOpts = lowerSessions.filter(s => s.day && s.startTime && s.endTime).map(fmt);
+  const upperOpts = upperSessions.filter(s => s.day && s.startTime && s.endTime).map(fmt);
+  const defaultSession = lowerOpts[0] || upperOpts[0] || 'Tuesday 5:00 pm – 5:45 pm';
+
+  const update = (idx: number, field: keyof GradeMappingEntry, val: string) => {
+    onChange(mapping.map((m, i) => {
+      if (i !== idx) return m;
+      const next = { ...m, [field]: val };
+      if (field === 'session') next.sessionDay = extractSessionDay(val);
+      return next;
+    }));
+  };
+  const remove = (idx: number) => onChange(mapping.filter((_, i) => i !== idx));
+  const add = () => onChange([...mapping, { grade: '1', session: defaultSession, sessionDay: extractSessionDay(defaultSession) }]);
+
+  return (
+    <div>
+      <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 12px 0' }}>
+        Force a specific grade to a designated session, overriding whatever they choose on the form.
+      </p>
+      {mapping.length === 0 && (
+        <div style={{ padding: '12px 16px', background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
+          No grade mappings set. Cubs will use their chosen session.
+        </div>
+      )}
+      {mapping.map((m, i) => {
+        const currentSession = m.session || m.sessionDay || defaultSession;
+        return (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 2.5fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+            <div>
+              {i === 0 && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>Grade</div>}
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={m.grade}
+                  onChange={e => update(i, 'grade', e.target.value)}
+                  style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-input)', color: 'var(--text-1)', fontSize: 13, appearance: 'none', cursor: 'pointer', boxSizing: 'border-box' }}
+                >
+                  {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+                <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+              </div>
+            </div>
+            <div>
+              {i === 0 && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 4, textTransform: 'uppercase' }}>Force to Session (Day & Time)</div>}
+              <GradeMappingSessionSelect
+                value={currentSession}
+                onChange={v => update(i, 'session', v)}
+                lowerOptions={lowerOpts}
+                upperOptions={upperOpts}
+              />
+            </div>
+            <button
+              onClick={() => remove(i)}
+              style={{ padding: '8px 10px', background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 8, cursor: 'pointer', color: 'var(--red)', display: 'flex', alignItems: 'center', marginTop: i === 0 ? 20 : 0 }}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        );
+      })}
+      <div style={{ marginTop: 8 }}>
+        <button
+          onClick={add}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 8, color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <Plus size={13} /> Add Grade Mapping
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── RC & Ori Sessions Tab ──────────────────────────────────────
+function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
+  const [isPending, startTransition] = useTransition();
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
+
+  // Sessions state
+  const [oriSessions, setOriSessions] = useState<SessionConfig[]>(initialConfig.oriSessions);
+  const [rcSessionsLower, setRcSessionsLower] = useState<SessionConfig[]>(initialConfig.rcSessionsLower);
+  const [rcSessionsUpper, setRcSessionsUpper] = useState<SessionConfig[]>(initialConfig.rcSessionsUpper);
+  const [rcCategoryLower, setRcCategoryLower] = useState(initialConfig.rcCategoryLower);
+  const [rcCategoryUpper, setRcCategoryUpper] = useState(initialConfig.rcCategoryUpper);
+  const [gradeMapping, setGradeMapping] = useState<GradeMappingEntry[]>(initialConfig.rcGradeMapping);
+
+  // Build the partial config for sessions (form IDs and item IDs remain untouched in DB)
+  const getSessionPayload = (): Partial<FormsConfig> => ({
+    oriSessions,
+    rcSessionsLower,
+    rcSessionsUpper,
+    rcCategoryLower: rcCategoryLower.trim(),
+    rcCategoryUpper: rcCategoryUpper.trim(),
+    rcGradeMapping: gradeMapping.map(m => {
+      const sess = m.session || m.sessionDay || 'Tuesday 5:00 pm – 5:45 pm';
+      return { grade: m.grade, session: sess, sessionDay: extractSessionDay(sess) };
+    }),
+  });
+
+  const handleSave = () => {
+    startTransition(async () => {
+      const res = await saveFormsPartialConfig(getSessionPayload());
+      if (res.success) toast.success('Session settings saved!');
+      else toast.error('Save failed: ' + res.error);
+    });
+  };
+
+  const handleRebuildConfirm = async () => {
+    setIsRebuilding(true);
+    try {
+      await saveFormsPartialConfig(getSessionPayload());
+      const res = await rebuildForms();
+      if (res.success) toast.success('Both Google Forms rebuilt successfully!');
+      else toast.error('Rebuild failed: ' + res.error);
+    } catch (e: any) {
+      toast.error('Error: ' + e.message);
+    } finally {
+      setIsRebuilding(false);
+      setShowRebuildConfirm(false);
+    }
+  };
+
+  const sectionCard = (title: string, subtitle: string | undefined, children: React.ReactNode) => (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12 }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      <div style={{ padding: 20 }}>{children}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={handleSave}
+            disabled={isPending}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', color: 'var(--text-2)', opacity: isPending ? 0.7 : 1 }}
+          >
+            <Save size={14} /> {isPending ? 'Saving…' : 'Save Settings'}
+          </button>
+          <button
+            onClick={() => setShowRebuildConfirm(true)}
+            disabled={isRebuilding || isPending}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: isRebuilding ? 0.7 : 1 }}
+          >
+            <Wrench size={14} /> {isRebuilding ? 'Rebuilding…' : 'Rebuild Forms Now'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Orientation Sessions ── */}
+      {sectionCard(
+        '🎓 Orientation Sessions',
+        'Each session calculates its single next upcoming date automatically on rebuild',
+        <SessionBuilder
+          sessions={oriSessions}
+          onChange={setOriSessions}
+          addLabel="Add Orientation Session"
+          hint={`Example output on rebuild: "Tuesday (13-Oct) 7:00 pm – 8:00 pm"`}
+        />
+      )}
+
+      {/* ── Reading Circle Sessions ── */}
+      {sectionCard(
+        '📖 Reading Circle Sessions',
+        'Sessions are published as recurring weekly options (no dates) on rebuild',
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          {/* Lower Grades */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>Grades 1–4 Sessions</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Category name applied to these cubs</div>
+              </div>
+              <input
+                value={rcCategoryLower}
+                onChange={e => setRcCategoryLower(e.target.value)}
+                placeholder="Word Astronauts"
+                style={{ padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-input)', color: 'var(--primary)', fontSize: 12, fontWeight: 700, width: 160 }}
+              />
+            </div>
+            <SessionBuilder sessions={rcSessionsLower} onChange={setRcSessionsLower} addLabel="Add Session (Lower)" />
+          </div>
+
+          {/* Upper Grades */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>Grades 5–8 Sessions</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Category name applied to these cubs</div>
+              </div>
+              <input
+                value={rcCategoryUpper}
+                onChange={e => setRcCategoryUpper(e.target.value)}
+                placeholder="Word Miners"
+                style={{ padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-input)', color: 'var(--green)', fontSize: 12, fontWeight: 700, width: 160 }}
+              />
+            </div>
+            <SessionBuilder sessions={rcSessionsUpper} onChange={setRcSessionsUpper} addLabel="Add Session (Upper)" />
+          </div>
+        </div>
+      )}
+
+      {/* ── Grade Mapping ── */}
+      {sectionCard(
+        '🔀 Grade-to-Session Mapping',
+        'Force a specific grade to a designated session, overriding their form choice',
+        <GradeMappingBuilder
+          mapping={gradeMapping}
+          onChange={setGradeMapping}
+          lowerSessions={rcSessionsLower}
+          upperSessions={rcSessionsUpper}
+        />
+      )}
+
+      {/* Rebuild Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showRebuildConfirm}
+        onClose={() => setShowRebuildConfirm(false)}
+        onConfirm={handleRebuildConfirm}
+        title="Rebuild Google Forms?"
+        message="This will connect to Google and overwrite the dropdown options on both Orientation and Reading Circle forms with the current sessions. Continue?"
+        confirmText="Rebuild"
+        variant="primary"
+        isLoading={isRebuilding}
+      />
+    </div>
+  );
+}
+
+export default function SettingsClient({ profiles, config, profile, repNames, formsConfig }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const rawTab = searchParams.get('tab');
-  const tab: 'users' | 'config' = rawTab === 'config' ? 'config' : 'users';
-  const setTab = useCallback((t: 'users' | 'config') => {
+  const tab: 'users' | 'config' | 'sessions' = 
+    rawTab === 'config' ? 'config' : rawTab === 'sessions' ? 'sessions' : 'users';
+  const setTab = useCallback((t: 'users' | 'config' | 'sessions') => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', t);
     router.replace(`/settings?${params.toString()}`, { scroll: false });
@@ -279,6 +681,21 @@ export default function SettingsClient({ profiles, config, profile, repNames }: 
     );
   }
 
+  // Build a fallback formsConfig if not loaded
+  const resolvedFormsConfig: FormsConfig = formsConfig ?? {
+    oriFormId: '1euyObOz6KNG3QgzdUG5otCxjfgV-0fZ9iCo3GFKKSXU',
+    oriSessionItemId: KNOWN_ORI_SESSION_ITEM_ID,
+    oriSessions: DEFAULT_ORI_SESSIONS,
+    rcFormId: '1NQPCb59uhpmo72BMxb9EHbxpAXqlmLlstyICTa8DJls',
+    rcSessionsLower: DEFAULT_RC_SESSIONS_LOWER,
+    rcSessionsUpper: DEFAULT_RC_SESSIONS_UPPER,
+    rcCategoryLower: 'Word Astronauts',
+    rcCategoryUpper: 'Word Miners',
+    rcGradeMapping: [],
+    rcLowerItemIds: KNOWN_RC_LOWER_ITEM_IDS,
+    rcUpperItemIds: KNOWN_RC_UPPER_ITEM_IDS,
+  };
+
   return (
     <div>
       <div className={styles.tabs}>
@@ -292,7 +709,13 @@ export default function SettingsClient({ profiles, config, profile, repNames }: 
           className={`${styles.tabBtn} ${tab === 'config' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('config')}
         >
-          Interactions Dropdown Config
+          Interactions Dropdown
+        </button>
+        <button 
+          className={`${styles.tabBtn} ${tab === 'sessions' ? styles.tabBtnActive : ''}`}
+          onClick={() => setTab('sessions')}
+        >
+          RC & Ori Sessions
         </button>
       </div>
 
@@ -310,7 +733,7 @@ export default function SettingsClient({ profiles, config, profile, repNames }: 
           <div className={sharedStyles.tableScrollBody}>
             <table className={sharedStyles.table}>
               <thead>
-                                <tr>
+                              <tr>
                   <th>Name</th>
                   <th>Email</th>
                   <th>Role</th>
@@ -539,7 +962,9 @@ export default function SettingsClient({ profiles, config, profile, repNames }: 
         </div>
       )}
 
-      
+      {tab === 'sessions' && (
+        <SessionsTab initialConfig={resolvedFormsConfig} />
+      )}
 
       {/* Add/Edit User Drawer */}
       {isDrawerOpen && (

@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/supabase/getProfile';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import type { Interaction, Action } from '@/lib/types';
@@ -11,11 +12,7 @@ export async function getInteractions(repFilter?: string): Promise<Interaction[]
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -67,11 +64,7 @@ export async function getAllActions(repFilter?: string): Promise<Action[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -115,11 +108,7 @@ export async function searchCubs(query: string, searchAll = false) {
   const q = query.trim().toLowerCase();
   if (q.length < 2) return [];
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -484,14 +473,29 @@ export async function deleteInteraction(interactionId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
 
+  // Verify ownership before deleting
+  const { data: existing } = await supabase
+    .from('interactions')
+    .select('id, interaction_id')
+    .eq('id', interactionId)
+    .eq('logged_by', user.id)
+    .single();
+
+  if (!existing) return { error: 'Interaction not found or you do not have permission to delete it' };
+
+  // Delete linked action first (belt-and-suspenders — FK cascade handles it,
+  // but explicit delete ensures sync even if the interaction_id FK ever changes)
+  await supabase.from('actions').delete().eq('interaction_id', existing.interaction_id);
+
   const { error } = await supabase
     .from('interactions')
     .delete()
     .eq('id', interactionId)
-    .eq('logged_by', user.id); // Only delete own interactions
+    .eq('logged_by', user.id);
 
   if (error) return { error: error.message };
 
   revalidatePath('/engagements');
+  revalidatePath('/dashboard');
   return { success: true };
 }

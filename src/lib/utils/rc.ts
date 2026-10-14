@@ -23,9 +23,10 @@ export function computeRCCategory(
 ): string {
   if (!grade || !session) return 'Unknown';
 
-  // Extract leading number from various formats:
-  // "Grade / Class 2" → 2, "Grade 7 / JHS 1" → 7, "3" → 3
-  const gradeNum = parseInt(grade.replace(/\D/g, ''), 10);
+  // Extract the FIRST digit sequence from various formats:
+  // "Grade / Class 2" → 2, "Grade 7 / JHS 1" → 7 (not 71), "3" → 3
+  const gradeMatch = grade.match(/\d+/);
+  const gradeNum = gradeMatch ? parseInt(gradeMatch[0], 10) : NaN;
   if (isNaN(gradeNum)) return 'Unknown';
 
   // Extract day from session string, stripping trailing "s" if present

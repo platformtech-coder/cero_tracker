@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/supabase/getProfile';
 import type { DashboardStats, Action, Cub, Family } from '@/lib/types';
 
 // ─── Dashboard Stats ───────────────────────────────────────────
@@ -9,11 +10,7 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -95,7 +92,7 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
   let pendingActionsCount = 0, completedActionsCount = 0;
   for (const a of (actionsData ?? [])) {
     if (a.action_status === 'Completed') completedActionsCount++;
-    else pendingActionsCount++;
+    else if (a.action_status !== 'Cancelled') pendingActionsCount++;
   }
 
   // Pending Signups
@@ -132,11 +129,7 @@ export async function getDashboardActions(repFilter?: string): Promise<Action[]>
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -163,11 +156,7 @@ export async function getDashboardCubs(repFilter?: string): Promise<(Cub & { cub
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -230,11 +219,7 @@ export async function getDashboardFamilies(repFilter?: string): Promise<Family[]
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
@@ -293,7 +278,7 @@ export async function getDropdowns() {
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
 
-  if (error) console.error("getDropdowns ERROR:", error);
+  if (error) throw new Error(`Failed to load dropdown config: ${error.message}`);
 
   const grouped: Record<string, string[]> = {};
   for (const item of (data ?? [])) {

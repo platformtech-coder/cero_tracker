@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/supabase/getProfile';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import type { Profile } from '@/lib/types';
@@ -12,11 +13,7 @@ export async function getProfiles(): Promise<Profile[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   if (profile?.role !== 'admin') throw new Error('Forbidden');
 
@@ -49,11 +46,7 @@ export async function updateProfileRole(id: string, role: 'admin' | 'rep') {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   if (profile?.role !== 'admin') return { error: 'Forbidden' };
 
@@ -82,11 +75,7 @@ export async function saveConfigValue(formData: z.infer<typeof ConfigSchema>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   if (profile?.role !== 'admin') return { error: 'Forbidden' };
 
@@ -125,11 +114,7 @@ export async function deleteConfigValue(id: number) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   if (profile?.role !== 'admin') return { error: 'Forbidden' };
 
@@ -164,11 +149,7 @@ export async function createUser({
   const { data: { user: caller } } = await supabase.auth.getUser();
   if (!caller) return { error: 'Unauthorized' };
 
-  const { data: callerProfile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', caller.id)
-    .single();
+  const callerProfile = await getProfile(supabase, caller.id);
 
   if (callerProfile?.role !== 'admin') return { error: 'Forbidden' };
 
@@ -213,11 +194,7 @@ export async function deleteUser(userId: string) {
   const { data: { user: caller } } = await supabase.auth.getUser();
   if (!caller) return { error: 'Unauthorized' };
 
-  const { data: callerProfile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', caller.id)
-    .single();
+  const callerProfile = await getProfile(supabase, caller.id);
 
   if (callerProfile?.role !== 'admin') return { error: 'Forbidden' };
 
@@ -259,11 +236,7 @@ export async function updateUserProfile({
   const { data: { user: caller } } = await supabase.auth.getUser();
   if (!caller) return { error: 'Unauthorized' };
 
-  const { data: callerProfile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', caller.id)
-    .single();
+  const callerProfile = await getProfile(supabase, caller.id);
 
   if (callerProfile?.role !== 'admin') return { error: 'Forbidden' };
 

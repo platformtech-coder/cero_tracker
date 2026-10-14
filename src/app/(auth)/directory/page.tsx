@@ -5,11 +5,11 @@ import DirectoryClient from './DirectoryClient';
 import { getAllReps, getDropdowns } from '@/lib/actions/dashboard';
 import type { Profile } from '@/lib/types';
 
-export const instant = false;
-
 interface PageProps {
   searchParams: Promise<{ rep?: string }>;
 }
+
+export const instant = false;
 
 export default async function DirectoryPage({ searchParams }: PageProps) {
   const supabase = await createClient();

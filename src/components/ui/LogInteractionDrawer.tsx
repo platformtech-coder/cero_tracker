@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Clock, Loader2 } from 'lucide-react';
 import { useInteractionStore } from '@/lib/store';
 import { getDropdowns } from '@/lib/actions/dashboard';
@@ -21,6 +22,7 @@ export function LogInteractionDrawer() {
     closeDrawer 
   } = useInteractionStore();
 
+  const router = useRouter();
   const [dropdowns, setDropdowns] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -165,6 +167,7 @@ export function LogInteractionDrawer() {
       toast.error(res.error);
     } else {
       toast.success('Interaction logged successfully!');
+      router.refresh();
       handleClose();
     }
   };

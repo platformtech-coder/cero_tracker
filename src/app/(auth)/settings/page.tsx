@@ -4,6 +4,8 @@ import { getAllReps } from '@/lib/actions/dashboard';
 import { AppShell } from '@/components/layout/AppShell';
 import SettingsClient from './SettingsClient';
 import type { Profile } from '@/lib/types';
+import { getFormsConfigForAdmin } from '@/lib/actions/forms';
+import type { FormsConfig } from '@/lib/constants/forms';
 
 export const instant = false;
 
@@ -21,12 +23,14 @@ export default async function SettingsPage() {
   let profiles: Profile[] = [];
   let config: any[] = [];
   let repNames: string[] = [];
+  let formsConfig: FormsConfig | null = null;
 
   if (profile?.role === 'admin') {
-    [profiles, config, repNames] = await Promise.all([
+    [profiles, config, repNames, formsConfig] = await Promise.all([
       getProfiles(),
       getSettingsConfig(),
       getAllReps(),
+      getFormsConfigForAdmin().catch(() => null),
     ]);
   }
 
@@ -53,6 +57,7 @@ export default async function SettingsPage() {
         config={config}
         profile={profile as Profile}
         repNames={repNames}
+        formsConfig={formsConfig}
       />
     </AppShell>
   );

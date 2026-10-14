@@ -256,8 +256,10 @@ export async function triggerExternalSync(sheetKey: string, _sheetId: string, _t
 
 // ─── Data Cleanup ─────────────────────────────────────────────
 export async function clearTable(tableName: string, confirm: string) {
-  if (confirm !== 'DELETE') return { success: false, error: 'Confirmation text does not match' };
+  // Auth check FIRST — before any business logic or string comparisons
   await requireSuperAdmin();
+
+  if (confirm !== 'DELETE') return { success: false, error: 'Confirmation text does not match' };
 
   const ALLOWED_TABLES = [
     'interactions', 'actions', 'audit_log', 'pending_signups',

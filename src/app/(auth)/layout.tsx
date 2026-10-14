@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
+// Routes under (auth) require request-time session and dynamic query params
 export const instant = false;
 
 export default async function AuthLayout({

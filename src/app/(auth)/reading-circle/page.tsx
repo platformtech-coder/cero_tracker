@@ -6,11 +6,11 @@ import { AppShell } from '@/components/layout/AppShell';
 import ReadingCircleClient from './ReadingCircleClient';
 import type { Profile } from '@/lib/types';
 
-export const instant = false;
-
 interface PageProps {
   searchParams: Promise<{ rep?: string }>;
 }
+
+export const instant = false;
 
 export default async function ReadingCirclePage({ searchParams }: PageProps) {
   const supabase = await createClient();

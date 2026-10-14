@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import type { Action, Profile } from '@/lib/types';
@@ -27,6 +27,11 @@ export default function ShiftClient({ initialActions, profile }: Props) {
     router.replace(`/shift-actions?${params.toString()}`, { scroll: false });
   }, [router, searchParams]);
   const [actions, setActions] = useState(initialActions);
+
+  useEffect(() => {
+    setActions(initialActions);
+  }, [initialActions]);
+
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -37,6 +42,7 @@ export default function ShiftClient({ initialActions, profile }: Props) {
         ...actions,
         [type]: actions[type].filter(a => a.id !== id) // Remove from list once completed
       });
+      router.refresh();
     } else {
       setErrorMessage('Error completing action: ' + res.error);
       setShowError(true);

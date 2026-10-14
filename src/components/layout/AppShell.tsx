@@ -10,6 +10,7 @@ import sharedStyles from '@/components/ui/dashboard.module.css';
 import { LogInteractionDrawer } from '@/components/ui/LogInteractionDrawer';
 import { useInteractionStore } from '@/lib/store';
 import { RepFilterBar } from '@/components/ui/RepFilterBar';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 interface AppShellProps {
   profile: Profile;
@@ -33,6 +34,8 @@ export function AppShell({
   customNavItems, activeCustomNavId, onCustomNavClick, customLogout, hideHeaderActions, onRefresh 
 }: AppShellProps) {
   const router = useRouter();
+  useRealtimeSync();
+
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const openInteractionDrawer = useInteractionStore(state => state.openDrawer);
 

@@ -5,11 +5,11 @@ import { AppShell } from '@/components/layout/AppShell';
 import OrientationClient from './OrientationClient';
 import type { Profile } from '@/lib/types';
 
-export const instant = false;
-
 interface PageProps {
   searchParams: Promise<{ rep?: string }>;
 }
+
+export const instant = false;
 
 export default async function OrientationPage({ searchParams }: PageProps) {
   const supabase = await createClient();

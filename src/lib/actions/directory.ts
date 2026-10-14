@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/supabase/getProfile';
 import type { Cub, Family, Interaction, Action } from '@/lib/types';
 
 // ─── Get Directory Cubs ─────────────────────────────────────────
@@ -9,11 +10,7 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   // Use sheet_rep_name if explicitly set, otherwise fall back to full_name
@@ -79,11 +76,7 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown } from 'lucide-react';
 import type { Cub, Family, Profile, Interaction, Action } from '@/lib/types';
 import { getCubActivity, getCubsForFamily } from '@/lib/actions/directory';
 
@@ -10,6 +10,7 @@ import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
 import { useInteractionStore } from '@/lib/store';
 import { formatDate } from '@/lib/utils/date';
+import { useTableSort } from '@/hooks/useTableSort';
 
 const PAGE_SIZE = 25;
 
@@ -579,7 +580,12 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
     });
   }, [initialCubs, cubSearch, primaryFilter, secondaryFilter, tertiaryFilter]);
 
-  const paginatedCubs = filteredCubs.slice((cubPage - 1) * PAGE_SIZE, cubPage * PAGE_SIZE);
+  const { sortedData: sortedCubs, handleSort: handleCubsSort, getSortIndicator: getCubsSortIndicator } = useTableSort(filteredCubs, {
+    sortableKeys: ['last_engagement_activity', 'cub_first_name', 'grade', 'stream', 'segment', 'sub_status', 'sub_end_date', 'no_sub_days', 'orientation_stage', 'orientation_stage_status', 'orientation_next_stage', 'orientation_completion_date', 'flag', 'current_streak', 'streak_label', 'current_league', 'cumulative_points', 'cumulative_weekly_points', 'handled_by_last', 'purpose_last'],
+    getSortValue: (item, key) => item[key as keyof typeof item],
+  });
+
+  const paginatedCubs = sortedCubs.slice((cubPage - 1) * PAGE_SIZE, cubPage * PAGE_SIZE);
 
   const filteredFamilies = useMemo(() => {
     const q = famSearch.toLowerCase();
@@ -648,28 +654,128 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
           ) : (
             <div style={{ flex: 1, overflow: 'auto' }}>
               <table className={sharedStyles.table}>
-                <thead style={{ position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 1 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                   <tr>
-                    <th style={{ textAlign: 'left', position: 'sticky', top: 0, zIndex: 1 }}>Last Engagement</th>
-                    <th style={{ textAlign: 'left', minWidth: '200px', position: 'sticky', top: 0, zIndex: 1 }}>Cub Name</th>
-                    <th style={{ textAlign: 'center', minWidth: '70px' }}>Grade</th>
-                    <th style={{ textAlign: 'center', minWidth: '80px' }}>Stream</th>
-                    <th style={{ textAlign: 'center', minWidth: '120px' }}>Segment</th>
-                    <th style={{ textAlign: 'center', minWidth: '100px' }}>Sub Status</th>
-                    <th style={{ textAlign: 'center', minWidth: '100px' }}>Sub End Date</th>
-                    <th style={{ textAlign: 'center', minWidth: '90px' }}>No. Sub Days</th>
-                    <th style={{ textAlign: 'center', minWidth: '150px' }}>Ori. Stage</th>
-                    <th style={{ textAlign: 'center', minWidth: '150px' }}>Ori. Stage Status</th>
-                    <th style={{ textAlign: 'center', minWidth: '150px' }}>Ori. Next Stage</th>
-                    <th style={{ textAlign: 'center', minWidth: '120px' }}>Ori. Completion Date</th>
-                    <th style={{ textAlign: 'center', minWidth: '150px' }}>Flag</th>
-                    <th style={{ textAlign: 'center', minWidth: '80px' }}>Curr. Streak</th>
-                    <th style={{ textAlign: 'center', minWidth: '90px' }}>Streak Label</th>
-                    <th style={{ textAlign: 'center', minWidth: '180px' }}>League</th>
-                    <th style={{ textAlign: 'center', minWidth: '90px' }}>Cumm. Points</th>
-                    <th style={{ textAlign: 'center', minWidth: '100px' }}>Weekly Points</th>
-                    <th style={{ textAlign: 'center', minWidth: '100px' }}>Handled By</th>
-                    <th style={{ textAlign: 'center', minWidth: '200px' }}>Purpose</th>
+                    <th style={{ textAlign: 'left', position: 'sticky', top: 0, zIndex: 1, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('last_engagement_activity')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Last Engagement
+                        {getCubsSortIndicator('last_engagement_activity') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'left', minWidth: '200px', position: 'sticky', top: 0, zIndex: 1, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('cub_first_name')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Cub Name
+                        {getCubsSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '70px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('grade')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Grade
+                        {getCubsSortIndicator('grade') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '80px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('stream')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Stream
+                        {getCubsSortIndicator('stream') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '120px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('segment')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Segment
+                        {getCubsSortIndicator('segment') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '100px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('sub_status')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Sub Status
+                        {getCubsSortIndicator('sub_status') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '100px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('sub_end_date')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Sub End Date
+                        {getCubsSortIndicator('sub_end_date') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '90px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('no_sub_days')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        No. Sub Days
+                        {getCubsSortIndicator('no_sub_days') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '150px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('orientation_stage')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Ori. Stage
+                        {getCubsSortIndicator('orientation_stage') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '150px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('orientation_stage_status')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Ori. Stage Status
+                        {getCubsSortIndicator('orientation_stage_status') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '150px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('orientation_next_stage')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Ori. Next Stage
+                        {getCubsSortIndicator('orientation_next_stage') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '120px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('orientation_completion_date')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Ori. Completion Date
+                        {getCubsSortIndicator('orientation_completion_date') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '150px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('flag')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Flag
+                        {getCubsSortIndicator('flag') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '80px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('current_streak')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Curr. Streak
+                        {getCubsSortIndicator('current_streak') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '90px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('streak_label')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Streak Label
+                        {getCubsSortIndicator('streak_label') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '180px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('current_league')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        League
+                        {getCubsSortIndicator('current_league') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '90px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('cumulative_points')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Cumm. Points
+                        {getCubsSortIndicator('cumulative_points') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '100px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('cumulative_weekly_points')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Weekly Points
+                        {getCubsSortIndicator('cumulative_weekly_points') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '100px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('handled_by_last')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Handled By
+                        {getCubsSortIndicator('handled_by_last') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
+                    <th style={{ textAlign: 'center', minWidth: '200px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('purpose_last')}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Purpose
+                        {getCubsSortIndicator('purpose_last') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>

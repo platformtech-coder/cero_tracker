@@ -11,21 +11,17 @@ import {
   FileText,
   AlertTriangle,
   Cloud,
-  HardDrive,
-  Link2,
   Play,
   Shield,
   BarChart3,
   Table2,
   Zap,
-  Info,
-  Clock,
   FileSpreadsheet,
-  FormInput,
-  ExternalLink,
   Save,
-  CheckCircle2,
+  ExternalLink,
+  Wrench,
 } from "lucide-react";
+
 import { toast } from "sonner";
 import {
   clearTable,
@@ -35,9 +31,9 @@ import {
   getSyncLogs,
   getSystemOverview,
 } from "@/lib/actions/system-admin";
+import { saveFormsPartialConfig, rebuildForms } from "@/lib/actions/forms";
 import sharedStyles from "@/components/ui/dashboard.module.css";
 import { AppShell } from "@/components/layout/AppShell";
-import { FormsSetupTab } from "@/components/admin/FormsSetupTab";
 import type { FormsConfig } from "@/lib/constants/forms";
 import {
   KNOWN_ORI_SESSION_ITEM_ID,
@@ -85,9 +81,9 @@ interface Overview {
     scoreCalendar: SheetCfg;
     emailHistory: SheetCfg;
   };
-  formConfig: {
-    orientation: string;
-    readingCircle: string;
+  formConfig?: {
+    orientation?: string;
+    readingCircle?: string;
   };
 }
 interface Props {
@@ -210,26 +206,7 @@ const SHEETS_CONFIG = [
   },
 ] as const;
 
-const FORMS_CONFIG = [
-  {
-    key: "orientation",
-    urlKey: "form_orientation_url",
-    label: "Orientation Form",
-    icon: "🎓",
-    desc: "Google Form for new cubs applying for orientation",
-    color: "var(--primary)",
-    bg: "var(--primary-dim)",
-  },
-  {
-    key: "readingCircle",
-    urlKey: "form_reading_circle_url",
-    label: "Reading Circle Form",
-    icon: "📖",
-    desc: "Google Form for cubs signing up for the reading circle",
-    color: "var(--green)",
-    bg: "var(--green-dim)",
-  },
-] as const;
+// Form URLs are no longer configured here — managed via the dashboard settings page.
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso: string | null) {
@@ -787,167 +764,9 @@ function SheetCard({
   );
 }
 
-// ─── Form Card ────────────────────────────────────────────────
-function FormCard({
-  cfg,
-  url,
-  onSave,
-  isSaving,
-}: {
-  cfg: (typeof FORMS_CONFIG)[number];
-  url: string;
-  onSave: (url: string) => void;
-  isSaving: boolean;
-}) {
-  const [localUrl, setLocalUrl] = useState(url);
-  const isConfigured = !!localUrl;
-
-  return (
-    <div
-      style={{
-        background: "var(--bg-card)",
-        border: "1px solid var(--border)",
-        borderRadius: 12,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div
-        style={{
-          padding: "12px 18px",
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          background: "var(--bg)",
-        }}
-      >
-        <span style={{ fontSize: 20 }}>{cfg.icon}</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>{cfg.label}</div>
-          <div style={{ fontSize: 11, color: "var(--text-3)" }}>{cfg.desc}</div>
-        </div>
-        {isConfigured ? (
-          <span
-            style={{
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 99,
-              background: "var(--green-dim)",
-              color: "var(--green)",
-              fontWeight: 700,
-            }}
-          >
-            ✓ Connected
-          </span>
-        ) : (
-          <span
-            style={{
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 99,
-              background: "var(--bg)",
-              color: "var(--text-3)",
-              fontWeight: 700,
-              border: "1px solid var(--border)",
-            }}
-          >
-            Not set
-          </span>
-        )}
-      </div>
-      <div
-        style={{
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        <div>
-          <label
-            style={{
-              display: "block",
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--text-3)",
-              marginBottom: 4,
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            Google Form URL
-          </label>
-          <input
-            value={localUrl}
-            onChange={(e) => setLocalUrl(e.target.value)}
-            placeholder="https://docs.google.com/forms/d/…"
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              background: "var(--bg-input)",
-              color: "var(--text-1)",
-              fontSize: 12,
-              fontFamily: "monospace",
-              boxSizing: "border-box",
-            }}
-          />
-        </div>
-
-        <div
-          style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}
-        >
-          <button
-            onClick={() => onSave(localUrl)}
-            disabled={isSaving}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "7px 14px",
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: "pointer",
-              color: "var(--text-2)",
-            }}
-          >
-            <Save size={12} /> {isSaving ? "Saving…" : "Save URL"}
-          </button>
-          {localUrl && (
-            <a
-              href={localUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "7px 14px",
-                background: "transparent",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                fontWeight: 600,
-                fontSize: 12,
-                color: "var(--text-3)",
-                textDecoration: "none",
-              }}
-            >
-              <ExternalLink size={12} /> Open Form
-            </a>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Main ─────────────────────────────────────────────────────
+
 export default function SystemAdminClient({ overview: init, formsConfig }: Props) {
   const router = useRouter();
 
@@ -976,12 +795,16 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   }, [router, searchParams]);
 
   const rawSubTab = searchParams.get('subtab');
-  const pipelineSubTab: 'sync' | 'config' | 'form_settings' = rawSubTab === 'config' ? 'config' : rawSubTab === 'form_settings' ? 'form_settings' : 'sync';
-  const setPipelineSubTab = useCallback((t: 'sync' | 'config' | 'form_settings') => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('subtab', t);
-    router.replace(`/system-admin?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+  const pipelineSubTab: 'sync' | 'config' =
+    rawSubTab === 'config' || rawSubTab === 'form_settings' ? 'config' : 'sync';
+  const setPipelineSubTab = useCallback(
+    (t: 'sync' | 'config') => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('subtab', t);
+      router.replace(`/system-admin?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
   const [overview, setOverview] = useState(init);
   const [logs, setLogs] = useState<AuditEntry[]>(init.auditLog);
   const [isPending, startTransition] = useTransition();
@@ -989,7 +812,25 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   // Per-sheet save/sync states
   const [savingSheet, setSavingSheet] = useState<string | null>(null);
   const [syncingSheet, setSyncingSheet] = useState<string | null>(null);
-  const [savingForm, setSavingForm] = useState<string | null>(null);
+
+  // Form IDs & item IDs state
+  const [oriFormId, setOriFormId] = useState(
+    formsConfig?.oriFormId ?? '1euyObOz6KNG3QgzdUG5otCxjfgV-0fZ9iCo3GFKKSXU'
+  );
+  const [oriSessionItemId, setOriSessionItemId] = useState(
+    formsConfig?.oriSessionItemId ?? KNOWN_ORI_SESSION_ITEM_ID
+  );
+  const [rcFormId, setRcFormId] = useState(
+    formsConfig?.rcFormId ?? '1NQPCb59uhpmo72BMxb9EHbxpAXqlmLlstyICTa8DJls'
+  );
+  const [rcLowerItemIds, setRcLowerItemIds] = useState(
+    (formsConfig?.rcLowerItemIds ?? KNOWN_RC_LOWER_ITEM_IDS).join(', ')
+  );
+  const [rcUpperItemIds, setRcUpperItemIds] = useState(
+    (formsConfig?.rcUpperItemIds ?? KNOWN_RC_UPPER_ITEM_IDS).join(', ')
+  );
+  const [savingFormKey, setSavingFormKey] = useState<string | null>(null);
+  const [isRebuildingForms, setIsRebuildingForms] = useState(false);
 
   const [purgeTarget, setPurgeTarget] = useState<{
     key: string;
@@ -1070,18 +911,51 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
     } else toast.error(res.error ?? "Failed to trigger sync", { id: `sync-${sheetKey}` });
   };
 
-  const handleFormSave = async (
-    formKey: string,
-    urlKey: string,
-    url: string,
-  ) => {
-    setSavingForm(formKey);
-    const res = await saveSheetConfig({ [urlKey]: url });
-    setSavingForm(null);
+  const handleSaveOriForm = async () => {
+    setSavingFormKey('ori');
+    const res = await saveFormsPartialConfig({
+      oriFormId: oriFormId.trim(),
+      oriSessionItemId: oriSessionItemId.trim(),
+    });
+    setSavingFormKey(null);
     if (res.success) {
-      toast.success(`${formKey} URL saved`);
+      toast.success('Orientation Form IDs saved');
       refresh();
-    } else toast.error(res.error ?? "Failed to save");
+    } else {
+      toast.error(res.error ?? 'Failed to save Orientation Form IDs');
+    }
+  };
+
+  const handleSaveRcForm = async () => {
+    setSavingFormKey('rc');
+    const res = await saveFormsPartialConfig({
+      rcFormId: rcFormId.trim(),
+      rcLowerItemIds: rcLowerItemIds.split(',').map((s) => s.trim()).filter(Boolean),
+      rcUpperItemIds: rcUpperItemIds.split(',').map((s) => s.trim()).filter(Boolean),
+    });
+    setSavingFormKey(null);
+    if (res.success) {
+      toast.success('Reading Circle Form IDs saved');
+      refresh();
+    } else {
+      toast.error(res.error ?? 'Failed to save Reading Circle Form IDs');
+    }
+  };
+
+  const handleRebuildForms = async () => {
+    setIsRebuildingForms(true);
+    try {
+      const res = await rebuildForms();
+      if (res.success) {
+        toast.success('Both Google Forms rebuilt successfully with active sessions!');
+      } else {
+        toast.error('Rebuild failed: ' + (res.error ?? 'Unknown error'));
+      }
+    } catch (e: any) {
+      toast.error('Error rebuilding forms: ' + e.message);
+    } finally {
+      setIsRebuildingForms(false);
+    }
   };
 
   const handleSyncAll = async () => {
@@ -1532,13 +1406,8 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
                 { id: "sync", label: "Sync", icon: RefreshCw },
                 {
                   id: "config",
-                  label: "Sheets & Forms URLs",
+                  label: "Sheets & Forms",
                   icon: FileSpreadsheet,
-                },
-                {
-                  id: "form_settings",
-                  label: "Forms Setup",
-                  icon: FormInput,
                 },
               ].map(({ id, label, icon: Icon }) => (
                 <button
@@ -1885,72 +1754,481 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
             {/* ── SHEETS & FORMS CONFIG TAB ── */}
             {pipelineSubTab === "config" && (
               <div
-                style={{ display: "flex", flexDirection: "column", gap: 20 }}
+                style={{ display: "flex", flexDirection: "column", gap: 24 }}
               >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(4, 1fr)",
-                    gap: 16,
-                  }}
-                >
-                  {SHEETS_CONFIG.map((cfg) => (
-                    <SheetCard
-                      key={cfg.key}
-                      cfg={cfg}
-                      sheetId={(overview.sheetConfig as any)[cfg.key]?.id ?? ""}
-                      tab={(overview.sheetConfig as any)[cfg.key]?.tab ?? ""}
-                      onSave={(id, tab) =>
-                        handleSheetSave(
-                          cfg.label,
-                          cfg.idKey,
-                          cfg.tabKey,
-                          id,
-                          tab,
-                        )
-                      }
-                      isSaving={savingSheet === cfg.label}
-                    />
-                  ))}
+                {/* Google Sheets Sync Configuration */}
+                <div>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>
+                      Google Sheets Configuration
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>
+                      Sheet IDs and tab names used by background syncing and webhooks
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, 1fr)",
+                      gap: 16,
+                    }}
+                  >
+                    {SHEETS_CONFIG.map((cfg) => (
+                      <SheetCard
+                        key={cfg.key}
+                        cfg={cfg}
+                        sheetId={(overview.sheetConfig as any)[cfg.key]?.id ?? ""}
+                        tab={(overview.sheetConfig as any)[cfg.key]?.tab ?? ""}
+                        onSave={(id, tab) =>
+                          handleSheetSave(
+                            cfg.label,
+                            cfg.idKey,
+                            cfg.tabKey,
+                            id,
+                            tab,
+                          )
+                        }
+                        isSaving={savingSheet === cfg.label}
+                      />
+                    ))}
+                  </div>
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, 1fr)",
-                    gap: 16,
-                  }}
-                >
-                  {FORMS_CONFIG.map((cfg) => (
-                    <FormCard
-                      key={cfg.key}
-                      cfg={cfg}
-                      url={(overview.formConfig as any)[cfg.key] ?? ""}
-                      onSave={(url) =>
-                        handleFormSave(cfg.label, cfg.urlKey, url)
-                      }
-                      isSaving={savingForm === cfg.label}
-                    />
-                  ))}
+                {/* Google Forms Configuration (Form IDs & Session Dropdown Item IDs) */}
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-end",
+                      marginBottom: 12,
+                      flexWrap: "wrap",
+                      gap: 10,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>
+                        Google Forms Configuration
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>
+                        Google Form IDs and session dropdown item IDs. Sessions and options are managed in Dashboard &gt; Settings &gt; RC &amp; Ori Sessions.
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRebuildForms}
+                      disabled={isRebuildingForms}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "7px 16px",
+                        background: "var(--primary)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        opacity: isRebuildingForms ? 0.7 : 1,
+                      }}
+                    >
+                      <Wrench size={13} /> {isRebuildingForms ? "Rebuilding Forms…" : "Rebuild Google Forms Now"}
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, 1fr)",
+                      gap: 16,
+                    }}
+                  >
+                    {/* Orientation Form Card */}
+                    <div
+                      style={{
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: "12px 18px",
+                          borderBottom: "1px solid var(--border)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          background: "var(--bg)",
+                        }}
+                      >
+                        <span style={{ fontSize: 20 }}>🎓</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>Orientation Form</div>
+                          <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+                            Form ID and Session Dropdown Item ID
+                          </div>
+                        </div>
+                        {oriFormId ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 99,
+                              background: "var(--green-dim)",
+                              color: "var(--green)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓ Configured
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 99,
+                              background: "var(--bg)",
+                              color: "var(--text-3)",
+                              fontWeight: 700,
+                              border: "1px solid var(--border)",
+                            }}
+                          >
+                            Not set
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          padding: 16,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: "var(--text-3)",
+                              marginBottom: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Google Form ID
+                          </label>
+                          <input
+                            value={oriFormId}
+                            onChange={(e) => setOriFormId(e.target.value)}
+                            placeholder="1euyObOz6KNG3QgzdUG5otCxjfgV-0fZ9iCo3GFKKSXU"
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              background: "var(--bg-input)",
+                              color: "var(--text-1)",
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: "var(--text-3)",
+                              marginBottom: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Session Dropdown Item ID
+                          </label>
+                          <input
+                            value={oriSessionItemId}
+                            onChange={(e) => setOriSessionItemId(e.target.value)}
+                            placeholder="465ce0fd"
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              background: "var(--bg-input)",
+                              color: "var(--text-1)",
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                          <button
+                            onClick={handleSaveOriForm}
+                            disabled={savingFormKey === "ori"}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 5,
+                              padding: "7px 14px",
+                              background: "var(--bg)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              fontWeight: 600,
+                              fontSize: 12,
+                              cursor: "pointer",
+                              color: "var(--text-2)",
+                            }}
+                          >
+                            <Save size={12} /> {savingFormKey === "ori" ? "Saving…" : "Save Orientation Form"}
+                          </button>
+                          {oriFormId && (
+                            <a
+                              href={`https://docs.google.com/forms/d/${oriFormId}/edit`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
+                                padding: "7px 14px",
+                                background: "transparent",
+                                border: "1px solid var(--border)",
+                                borderRadius: 8,
+                                fontWeight: 600,
+                                fontSize: 12,
+                                color: "var(--text-3)",
+                                textDecoration: "none",
+                              }}
+                            >
+                              <ExternalLink size={12} /> Open Form in Google
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Reading Circle Form Card */}
+                    <div
+                      style={{
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: "12px 18px",
+                          borderBottom: "1px solid var(--border)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          background: "var(--bg)",
+                        }}
+                      >
+                        <span style={{ fontSize: 20 }}>📖</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>Reading Circle Form</div>
+                          <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+                            Form ID and Session Dropdown Item IDs
+                          </div>
+                        </div>
+                        {rcFormId ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 99,
+                              background: "var(--green-dim)",
+                              color: "var(--green)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓ Configured
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 99,
+                              background: "var(--bg)",
+                              color: "var(--text-3)",
+                              fontWeight: 700,
+                              border: "1px solid var(--border)",
+                            }}
+                          >
+                            Not set
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          padding: 16,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: "var(--text-3)",
+                              marginBottom: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Google Form ID
+                          </label>
+                          <input
+                            value={rcFormId}
+                            onChange={(e) => setRcFormId(e.target.value)}
+                            placeholder="1NQPCb59uhpmo72BMxb9EHbxpAXqlmLlstyICTa8DJls"
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              background: "var(--bg-input)",
+                              color: "var(--text-1)",
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: "var(--text-3)",
+                              marginBottom: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Grades 1–4 Item IDs (comma-separated)
+                          </label>
+                          <input
+                            value={rcLowerItemIds}
+                            onChange={(e) => setRcLowerItemIds(e.target.value)}
+                            placeholder="465ce0fd, ..."
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              background: "var(--bg-input)",
+                              color: "var(--text-1)",
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            style={{
+                              display: "block",
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: "var(--text-3)",
+                              marginBottom: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Grades 5–8 Item IDs (comma-separated)
+                          </label>
+                          <input
+                            value={rcUpperItemIds}
+                            onChange={(e) => setRcUpperItemIds(e.target.value)}
+                            placeholder="01d71c4c, ..."
+                            style={{
+                              width: "100%",
+                              padding: "8px 10px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              background: "var(--bg-input)",
+                              color: "var(--text-1)",
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                          <button
+                            onClick={handleSaveRcForm}
+                            disabled={savingFormKey === "rc"}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 5,
+                              padding: "7px 14px",
+                              background: "var(--bg)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              fontWeight: 600,
+                              fontSize: 12,
+                              cursor: "pointer",
+                              color: "var(--text-2)",
+                            }}
+                          >
+                            <Save size={12} /> {savingFormKey === "rc" ? "Saving…" : "Save RC Form"}
+                          </button>
+                          {rcFormId && (
+                            <a
+                              href={`https://docs.google.com/forms/d/${rcFormId}/edit`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
+                                padding: "7px 14px",
+                                background: "transparent",
+                                border: "1px solid var(--border)",
+                                borderRadius: 8,
+                                fontWeight: 600,
+                                fontSize: 12,
+                                color: "var(--text-3)",
+                                textDecoration: "none",
+                              }}
+                            >
+                              <ExternalLink size={12} /> Open Form in Google
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
-
-            {/* ── FORMS SETUP TAB ── */}
-            {pipelineSubTab === "form_settings" && (
-              <FormsSetupTab initialConfig={formsConfig ?? {
-                oriFormId: '1euyObOz6KNG3QgzdUG5otCxjfgV-0fZ9iCo3GFKKSXU',
-                oriSessionItemId: KNOWN_ORI_SESSION_ITEM_ID,
-                oriSessions: DEFAULT_ORI_SESSIONS,
-                rcFormId: '1NQPCb59uhpmo72BMxb9EHbxpAXqlmLlstyICTa8DJls',
-                rcSessionsLower: DEFAULT_RC_SESSIONS_LOWER,
-                rcSessionsUpper: DEFAULT_RC_SESSIONS_UPPER,
-                rcCategoryLower: 'Word Astronauts',
-                rcCategoryUpper: 'Word Miners',
-                rcGradeMapping: [],
-                rcLowerItemIds: KNOWN_RC_LOWER_ITEM_IDS,
-                rcUpperItemIds: KNOWN_RC_UPPER_ITEM_IDS,
-              }} />
             )}
           </div>
         )}

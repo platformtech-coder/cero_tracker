@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/supabase/getProfile';
 import { revalidatePath } from 'next/cache';
 import type { Orientation, PendingSignup, Cub } from '@/lib/types';
 import { z } from 'zod';
@@ -267,6 +268,7 @@ export async function updateCubJourney(formData: z.infer<typeof UpdateJourneySch
 
   const { cub_id, version_ts, updates } = parsed.data;
   const { rc_session, ...rawOrientationUpdates } = updates;
+  let assignedRcCategory: string | undefined = undefined;
 
   // 1. Fetch current orientation row for optimistic lock check + merge
   const { data: current, error: fetchErr } = await supabase
@@ -299,6 +301,8 @@ export async function updateCubJourney(formData: z.infer<typeof UpdateJourneySch
     const lowerCategory = cfg['forms_rc_category_lower'] || 'Word Astronauts';
     const upperCategory = cfg['forms_rc_category_upper'] || 'Word Miners';
     const rcCategory = computeRCCategory(master?.grade ?? null, trimmedSession, lowerCategory, upperCategory);
+
+    assignedRcCategory = rcCategory;
 
     // Upsert reading_circle row
     await supabase.from('reading_circle').upsert(
@@ -385,9 +389,16 @@ export async function updateCubJourney(formData: z.infer<typeof UpdateJourneySch
   if (cubsErr) return { error: cubsErr.message };
 
   revalidatePath('/orientation');
+  revalidatePath('/reading-circle');
   revalidatePath('/directory');
   revalidatePath('/dashboard');
-  return { success: true, stage: stageResult };
+  return {
+    success: true,
+    stage: stageResult,
+    version_ts: updated[0]?.version_ts ?? (version_ts + 1),
+    rcCategory: assignedRcCategory,
+    updates: updatePayload,
+  };
 }
 
 // ─── Change Cub Orientation Session ────────────────────────────
@@ -443,11 +454,7 @@ export async function getOrientationScorecardMetrics(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name, sheet_rep_name')
-    .eq('id', user.id)
-    .single();
+  const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;

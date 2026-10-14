@@ -4,8 +4,13 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 
 const ADMIN_COOKIE_NAME = 'system_admin_session';
 
-const rawJwtSecret = process.env.JWT_SECRET || 'fallback-dummy-secret-key-12345';
-const JWT_SECRET = new TextEncoder().encode(rawJwtSecret);
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    '[systemAdminAuth] JWT_SECRET environment variable is not set. ' +
+    'Generate a strong secret (e.g. openssl rand -base64 32) and add it to .env.local.'
+  );
+}
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
 export interface SystemAdminSession {
   email: string;
@@ -100,6 +105,7 @@ export async function verifySystemAdminCredentials(email: string, passwordInput:
     });
     
     if (authData?.user && !error) {
+      await tempClient.auth.signOut();
       return { valid: true, name: user.full_name || 'System Admin' };
     }
   }

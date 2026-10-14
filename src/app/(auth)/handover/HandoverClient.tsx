@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useTransition, useMemo } from 'react';
+import { useState, useTransition, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlusCircle, ChevronLeft, ChevronRight, RefreshCw, X, Edit2, Trash2, AlertCircle } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, RefreshCw, X, Edit2, Trash2, AlertCircle, ArrowUpDown } from 'lucide-react';
 import type { HandoverNote, Profile } from '@/lib/types';
 import { submitHandoverNote, updateHandoverNote, deleteHandoverNote } from '@/lib/actions/handover';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
 import { formatDate, formatDateTime, formatTime } from '@/lib/utils/date';
 import { toast } from 'sonner';
+import { useTableSort } from '@/hooks/useTableSort';
 
 const PAGE_SIZE = 15;
 
@@ -214,6 +215,10 @@ export default function HandoverClient({ initialNotes, profile }: Props) {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [notes, setNotes] = useState(initialNotes);
+
+  useEffect(() => {
+    setNotes(initialNotes);
+  }, [initialNotes]);
   const [selectedNote, setSelectedNote] = useState<(HandoverNote & { profile: { full_name: string } }) | null>(null);
   const [repFilter, setRepFilter] = useState<string>('All Reps');
   const [preConfirmDelete, setPreConfirmDelete] = useState<number | null>(null);
@@ -229,7 +234,15 @@ export default function HandoverClient({ initialNotes, profile }: Props) {
     return notes.filter(n => n.profile.full_name === repFilter);
   }, [notes, repFilter]);
 
-  const paginated = filteredNotes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { sortedData, handleSort, getSortIndicator } = useTableSort(filteredNotes, {
+    sortableKeys: ['date', 'profile.full_name', 'summary', 'pending_issues'],
+    getSortValue: (item, key) => {
+      if (key === 'profile.full_name') return item.profile.full_name;
+      return item[key as keyof typeof item];
+    },
+  });
+
+  const paginated = sortedData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -254,6 +267,7 @@ export default function HandoverClient({ initialNotes, profile }: Props) {
       toast.success('Note updated');
       setNotes(prev => prev.map(n => n.id === id ? { ...n, summary: sum, pending_issues: issues } : n));
       setSelectedNote(prev => prev?.id === id ? { ...prev, summary: sum, pending_issues: issues } : prev);
+      router.refresh();
     } else {
       toast.error(res.error ?? 'Failed to update note');
     }
@@ -265,6 +279,7 @@ export default function HandoverClient({ initialNotes, profile }: Props) {
       toast.success('Note deleted');
       setNotes(prev => prev.filter(n => n.id !== id));
       setSelectedNote(null);
+      router.refresh();
     } else {
       toast.error(res.error ?? 'Failed to delete note');
     }
@@ -350,14 +365,46 @@ export default function HandoverClient({ initialNotes, profile }: Props) {
             <div className={sharedStyles.emptyStateSub}>Click &quot;New Note&quot; to log your first handover.</div>
           </div>
         ) : (
-          <div className={sharedStyles.tableScrollBody}>
+<div className={sharedStyles.tableScrollBody}>
             <table className={sharedStyles.table}>
               <thead>
                 <tr>
-                  <th style={{ width: '15%', whiteSpace: 'nowrap' }}>Date &amp; Time</th>
-                  <th style={{ width: '15%' }}>Logged By</th>
-                  <th style={{ width: '35%' }}>Summary</th>
-                  <th style={{ width: '28%' }}>Pending Issues</th>
+                  <th
+                    style={{ width: '15%', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('date')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Date & Time
+                      {getSortIndicator('date') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th
+                    style={{ width: '15%', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('profile.full_name')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Logged By
+                      {getSortIndicator('profile.full_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th
+                    style={{ width: '35%', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('summary')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Summary
+                      {getSortIndicator('summary') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th
+                    style={{ width: '28%', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => handleSort('pending_issues')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Pending Issues
+                      {getSortIndicator('pending_issues') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
                   <th style={{ width: '7%', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>

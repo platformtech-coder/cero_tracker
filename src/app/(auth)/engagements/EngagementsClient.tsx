@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useMemo, useCallback, useTransition } from 'react';
+import { useState, useMemo, useCallback, useTransition, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format, parseISO, isValid } from 'date-fns';
 import {
   Search, CheckCircle2, MessageSquarePlus, Clock, AlertCircle,
   ChevronLeft, ChevronRight, X, Plus, Edit2, Trash2, RefreshCw,
+  ArrowUpDown
 } from 'lucide-react';
 import type { Action, Interaction, Profile } from '@/lib/types';
 import {
@@ -18,6 +19,7 @@ import { toast } from 'sonner';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import styles from './engagements.module.css';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { useTableSort } from '@/hooks/useTableSort';
 
 const PAGE_SIZE = 20;
 
@@ -433,6 +435,10 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
 }) {
   const [actions, setActions] = useState(initial);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setActions(initial);
+  }, [initial]);
   const [search, setSearch] = useState('');
   
   const [primaryFilter, setPrimaryFilter] = useState('');
@@ -501,7 +507,12 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
     });
   }, [actions, search, primaryFilter, secondaryFilter]);
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { sortedData, handleSort, getSortIndicator } = useTableSort(filtered, {
+    sortableKeys: ['cub_first_name', 'action', 'action_deadline', 'action_status', 'handled_by'],
+    getSortValue: (item, key) => item[key as keyof Action],
+  });
+
+  const paginated = sortedData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
 
 
@@ -556,11 +567,36 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
             <table className={sharedStyles.table}>
               <thead>
                 <tr>
-                  <th>Cub</th>
-                  <th>Action</th>
-                  <th>Deadline</th>
-                  <th>Status</th>
-                  <th>Rep</th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('cub_first_name')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Cub
+                      {getSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Action
+                      {getSortIndicator('action') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action_deadline')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Deadline
+                      {getSortIndicator('action_deadline') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action_status')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Status
+                      {getSortIndicator('action_status') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('handled_by')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Rep
+                      {getSortIndicator('handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
                   <th>Follow-Up</th>
                 </tr>
               </thead>
@@ -641,6 +677,10 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
   onLogNew: (i: Interaction) => void;
 }) {
   const [interactions, setInteractions] = useState(initial);
+
+  useEffect(() => {
+    setInteractions(initial);
+  }, [initial]);
   const [search, setSearch] = useState('');
   const [purposeFilter, setPurposeFilter] = useState('');
   const [page, setPage] = useState(1);
@@ -679,7 +719,12 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
     });
   }, [interactions, search, purposeFilter]);
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { sortedData, handleSort, getSortIndicator } = useTableSort(filtered, {
+    sortableKeys: ['date', 'cub_first_name', 'purpose', 'feedback', 'handled_by'],
+    getSortValue: (item, key) => item[key as keyof Interaction],
+  });
+
+  const paginated = sortedData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDelete = (id: string) => {
     setDeleteInteractionId(id);
@@ -730,11 +775,36 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
             <table className={sharedStyles.table}>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Cub</th>
-                  <th>Purpose / Type</th>
-                  <th>Feedback</th>
-                  <th>Rep</th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('date')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Date
+                      {getSortIndicator('date') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('cub_first_name')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Cub
+                      {getSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('purpose')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Purpose / Type
+                      {getSortIndicator('purpose') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('feedback')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Feedback
+                      {getSortIndicator('feedback') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('handled_by')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Rep
+                      {getSortIndicator('handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
                   <th>Action?</th>
                   <th style={{ width: 80 }}></th>
                 </tr>
@@ -833,6 +903,10 @@ export default function EngagementsClient({ initialInteractions, initialActions,
   }, [router, searchParams]);
   const [actions, setActions] = useState(initialActions);
 
+  useEffect(() => {
+    setActions(initialActions);
+  }, [initialActions]);
+
   const activeCount = actions.filter(a => !['Completed', 'Cancelled'].includes(a.action_status)).length;
 
   return (
@@ -852,7 +926,7 @@ export default function EngagementsClient({ initialInteractions, initialActions,
           dropdowns={dropdowns}
           profile={profile}
           onActionUpdated={() => {
-            // Optimistic: handled inside the component; server re-validates on next load
+            router.refresh();
           }}
         />
       )}
@@ -863,7 +937,7 @@ export default function EngagementsClient({ initialInteractions, initialActions,
           dropdowns={dropdowns}
           profile={profile}
           onLogNew={() => {
-            // Could also add action to actions list if it was action_required=Yes
+            router.refresh();
           }}
         />
       )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useMemo } from 'react';
+import { useState, useEffect, useTransition, useMemo } from 'react';
 import {
   X, ChevronDown, ChevronUp, Save, RefreshCw, Calendar,
   User, Phone, Sparkles, CheckCircle2, Clock, AlertCircle
@@ -26,11 +26,12 @@ interface OrientationJourneyDrawerProps {
       parent_email?: string;
       relationship_owner?: string;
       segment?: string;
+      reading_circle_category?: string | null;
     };
   };
   availableSessions?: string[];
   onClose: () => void;
-  onUpdated: (updates: Partial<Orientation>) => void;
+  onUpdated: (updates: Partial<Orientation> & { rcCategory?: string; version_ts?: string }) => void;
 }
 
 export default function OrientationJourneyDrawer({
@@ -44,7 +45,7 @@ export default function OrientationJourneyDrawer({
   // Form state initialized directly from record
   const [form, setForm] = useState({
     session: record.session ?? '',
-    rc_session: (record as any).cubs?.reading_circle_category ? '' : '',
+    rc_session: '',
     invited_status: record.invited_status ?? 'Yes',
     booked_status: record.booked_status ?? '',
     booked_date: record.booked_date ?? '',
@@ -70,6 +71,27 @@ export default function OrientationJourneyDrawer({
 
   // Exactly one stage open by default, collapsible
   const [openStage, setOpenStage] = useState<StageKey | null>(defaultOpenStage);
+
+  // Sync form state whenever record or default stage changes
+  useEffect(() => {
+    setForm({
+      session: record.session ?? '',
+      rc_session: '',
+      invited_status: record.invited_status ?? 'Yes',
+      booked_status: record.booked_status ?? '',
+      booked_date: record.booked_date ?? '',
+      attended_status: record.attended_status ?? '',
+      attended_date: record.attended_date ?? '',
+      attended_feedback: record.attended_feedback ?? '',
+      rc_selected_status: record.rc_selected_status ?? '',
+      rc_selected_date: record.rc_selected_date ?? '',
+      rc_selected_feedback: record.rc_selected_feedback ?? '',
+      first_win_status: record.first_win_status ?? '',
+      first_win_date: record.first_win_date ?? '',
+      first_win_feedback: record.first_win_feedback ?? '',
+    });
+    setOpenStage(defaultOpenStage);
+  }, [record, defaultOpenStage]);
 
   const toggleStage = (stage: StageKey) => {
     setOpenStage(prev => (prev === stage ? null : stage));
@@ -122,7 +144,14 @@ export default function OrientationJourneyDrawer({
 
       toast.success('Orientation journey updated successfully!');
       const { rc_session: _, ...orientationFields } = updates;
-      onUpdated({ ...orientationFields, stage: res.stage?.stage, stage_status: res.stage?.stage_status, next_stage: res.stage?.next_stage });
+      onUpdated({
+        ...orientationFields,
+        stage: res.stage?.stage,
+        stage_status: res.stage?.stage_status,
+        next_stage: res.stage?.next_stage,
+        version_ts: res.version_ts,
+        ...(res.rcCategory ? { rcCategory: res.rcCategory } : {})
+      } as any);
       onClose();
     });
   };

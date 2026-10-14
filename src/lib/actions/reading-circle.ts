@@ -316,7 +316,7 @@ export async function processRCSignup(formData: z.infer<typeof ProcessSignupSche
   if (cfg['forms_rc_grade_mapping'] && effectiveGrade) {
     try {
       const mapping: { grade: string; session?: string; sessionDay?: string }[] = JSON.parse(cfg['forms_rc_grade_mapping']);
-      const cubGradeNum = parseInt((effectiveGrade || '').replace(/\D/g, ''), 10);
+      const cubGradeNum = parseInt(((effectiveGrade || '').match(/\d+/) ?? ['0'])[0], 10);
       const match = mapping.find(m => parseInt(m.grade, 10) === cubGradeNum);
       if (match) {
         const mappedVal = match.session || match.sessionDay;
@@ -496,12 +496,6 @@ export async function changeCubRCSession(formData: z.infer<typeof ChangeSessionS
     }, { onConflict: 'cub_id' });
 
   if (rcErr) return { error: rcErr.message };
-
-  // Propagate to cubs
-  await supabase
-    .from('cubs')
-    .update({ reading_circle_category: newCategory })
-    .eq('cub_id', cub_id);
 
   // Sync orientation journey — recompute stage after RC session change
   const { data: orientationRow } = await supabase

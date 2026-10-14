@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useMemo, useTransition, useCallback } from 'react';
+import { useState, useMemo, useTransition, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Search, CheckCircle2, ChevronLeft, ChevronRight,
   Clock, Sparkles, AlertCircle, Users, BookOpen,
   Target, BarChart3, CalendarCheck, Calendar, Loader2,
-  AlertTriangle
+  AlertTriangle, ArrowUpDown
 } from 'lucide-react';
 import type { Orientation, PendingSignup, Cub, Profile } from '@/lib/types';
 import {
   getOrientationScorecardMetrics,
+  getOrientationMaster,
   type OrientationScorecardMetrics,
 } from '@/lib/actions/orientation';
 import ProcessPendingDrawer from '@/components/drawers/ProcessPendingDrawer';
@@ -20,6 +21,7 @@ import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
 import { formatDate, formatDateTime } from '@/lib/utils/date';
 import { toast } from 'sonner';
+import { useTableSort } from '@/hooks/useTableSort';
 
 const PAGE_SIZE = 20;
 
@@ -190,6 +192,10 @@ function ScorecardStatsPanel({
   const [endDate, setEndDate] = useState('');
   const [selectedRep, setSelectedRep] = useState(currentRep);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setMetrics(initialMetrics);
+  }, [initialMetrics]);
 
   const fetchMetrics = useCallback((start: string, end: string, rep: string) => {
     startTransition(async () => {
@@ -443,6 +449,15 @@ export default function OrientationClient({
 
   const [pending, setPending] = useState(initialPending);
   const [master, setMaster] = useState(initialMaster);
+  const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    setPending(initialPending);
+  }, [initialPending]);
+
+  useEffect(() => {
+    setMaster(initialMaster);
+  }, [initialMaster]);
 
   // Drawers state
   const [drawerRecord, setDrawerRecord] = useState<OrientationMasterItem | null>(null);
@@ -484,7 +499,12 @@ export default function OrientationClient({
     );
   }, [pending, pendingSearch]);
 
-  const paginatedPending = filteredPending.slice((pendingPage - 1) * PAGE_SIZE, pendingPage * PAGE_SIZE);
+  const { sortedData: sortedPending, handleSort: handlePendingSort, getSortIndicator: getPendingSortIndicator } = useTableSort(filteredPending, {
+    sortableKeys: ['created_at', 'cub_name', 'parent_name', 'selected_session', 'match_confidence'],
+    getSortValue: (item, key) => item[key as keyof typeof item],
+  });
+
+  const paginatedPending = sortedPending.slice((pendingPage - 1) * PAGE_SIZE, pendingPage * PAGE_SIZE);
 
   // ─── TAB 2: New Cubs Pipeline State ─────────────────────────────
   // Active cubs only from Gen. Comm awaiting orientation booking
@@ -549,7 +569,18 @@ export default function OrientationClient({
     });
   }, [newCubsList, newCubsSearch, newCubsPrimaryFilter, newCubsSecondaryFilter]);
 
-  const paginatedNewCubs = filteredNewCubs.slice((newCubsPage - 1) * PAGE_SIZE, newCubsPage * PAGE_SIZE);
+  const { sortedData: sortedNewCubs, handleSort: handleNewCubsSort, getSortIndicator: getNewCubsSortIndicator } = useTableSort(filteredNewCubs, {
+    sortableKeys: ['cubs.cub_first_name', 'cubs.parent_first_name', 'cubs.date_onboarded', 'cubs.relationship_owner', 'stage', 'next_stage'],
+    getSortValue: (item, key) => {
+      if (key === 'cubs.cub_first_name') return item.cubs.cub_first_name;
+      if (key === 'cubs.parent_first_name') return item.cubs.parent_first_name;
+      if (key === 'cubs.date_onboarded') return item.cubs.date_onboarded;
+      if (key === 'cubs.relationship_owner') return item.cubs.relationship_owner;
+      return item[key as keyof typeof item];
+    },
+  });
+
+  const paginatedNewCubs = sortedNewCubs.slice((newCubsPage - 1) * PAGE_SIZE, newCubsPage * PAGE_SIZE);
 
   // ─── TAB 3: Upcoming Sessions State ─────────────────────────────
   // Active cubs booked for a session who have NOT completed orientation yet.
@@ -714,16 +745,34 @@ export default function OrientationClient({
     setPending(prev => prev.filter(p => p.id !== id));
     if (status === 'Confirmed') {
       router.refresh();
+      startTransition(async () => {
+        try {
+          const freshMaster = await getOrientationMaster();
+          if (freshMaster) setMaster(freshMaster as any);
+        } catch {}
+      });
     }
   };
 
-  const handleJourneyUpdated = (updates: Partial<Orientation>) => {
+  const handleJourneyUpdated = (updates: Partial<Orientation> & { rcCategory?: string; version_ts?: string }) => {
     if (!drawerRecord) return;
     // Optimistic update — immediately reflects in all derived tabs (newCubs, upcoming, master)
-    setMaster(prev => prev.map(m =>
-      m.cub_id === drawerRecord.cub_id ? { ...m, ...updates } : m
-    ));
-    setDrawerRecord(prev => prev ? { ...prev, ...updates } : null);
+    setMaster(prev => prev.map(m => {
+      if (m.cub_id !== drawerRecord.cub_id) return m;
+      const updatedItem = { ...m, ...updates };
+      if (updates.rcCategory) {
+        updatedItem.cubs = { ...updatedItem.cubs, reading_circle_category: updates.rcCategory };
+      }
+      return updatedItem;
+    }));
+    setDrawerRecord(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, ...updates };
+      if (updates.rcCategory) {
+        updated.cubs = { ...updated.cubs, reading_circle_category: updates.rcCategory };
+      }
+      return updated;
+    });
     // Background refresh to sync server state across all tabs
     router.refresh();
   };
@@ -828,11 +877,36 @@ export default function OrientationClient({
                 <table className={sharedStyles.table}>
                   <thead>
                     <tr>
-                      <th>Submitted</th>
-                      <th>Cub</th>
-                      <th>Parent</th>
-                      <th>Preferred Day</th>
-                      <th>Match Confidence</th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('created_at')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Submitted
+                          {getPendingSortIndicator('created_at') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('cub_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Cub
+                          {getPendingSortIndicator('cub_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('parent_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Parent
+                          {getPendingSortIndicator('parent_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('selected_session')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Preferred Day
+                          {getPendingSortIndicator('selected_session') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('match_confidence')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Match Confidence
+                          {getPendingSortIndicator('match_confidence') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
                       <th style={{ width: 36, textAlign: 'right' }}></th>
                     </tr>
                   </thead>
@@ -966,13 +1040,43 @@ export default function OrientationClient({
                 <table className={sharedStyles.table}>
                   <thead>
                     <tr>
-                      <th>Cub</th>
-                      <th>Parent</th>
-                      <th>Onboarded</th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleNewCubsSort('cubs.cub_first_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Cub
+                          {getNewCubsSortIndicator('cubs.cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleNewCubsSort('cubs.parent_first_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Parent
+                          {getNewCubsSortIndicator('cubs.parent_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleNewCubsSort('cubs.date_onboarded')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Onboarded
+                          {getNewCubsSortIndicator('cubs.date_onboarded') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
                       <th>SLA Window</th>
-                      <th>Current Stage</th>
-                      <th>Next Stage</th>
-                      <th>Rep</th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleNewCubsSort('stage')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Current Stage
+                          {getNewCubsSortIndicator('stage') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleNewCubsSort('next_stage')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Next Stage
+                          {getNewCubsSortIndicator('next_stage') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleNewCubsSort('cubs.relationship_owner')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Rep
+                          {getNewCubsSortIndicator('cubs.relationship_owner') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
                       <th style={{ width: 36, textAlign: 'right' }}></th>
                     </tr>
                   </thead>

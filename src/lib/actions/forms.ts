@@ -1,6 +1,9 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient } from '@/lib/supabase/server';
+import { getProfile } from '@/lib/supabase/getProfile';
 import { google } from 'googleapis';
 import { getSystemAdminSession } from '@/lib/systemAdminAuth';
 import type { SessionConfig, FormsConfig } from '@/lib/constants/forms';
@@ -25,6 +28,26 @@ async function requireSuperAdmin() {
   const session = await getSystemAdminSession();
   if (!session) throw new Error('Unauthorized - Super Admin Only');
   return session;
+}
+
+/**
+ * Accepts either a system-admin JWT session OR a logged-in dashboard admin.
+ * Returns a display email/identifier for audit purposes.
+ */
+async function requireAdminOrSuperAdmin(): Promise<string> {
+  // 1. Try system-admin session first (JWT cookie)
+  const sysSession = await getSystemAdminSession();
+  if (sysSession) return sysSession.email;
+
+  // 2. Fall back to Supabase auth admin
+  const supabase = await createSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  const profile = await getProfile(supabase, user.id);
+
+  if (profile?.role !== 'admin') throw new Error('Forbidden - Admin only');
+  return profile.email ?? user.email ?? user.id;
 }
 
 function getGoogleAuth() {
@@ -99,7 +122,7 @@ function buildUpdateRequest(itemId: string, options: string[], index: number) {
 // ─── Server Actions ───────────────────────────────────────────
 
 export async function saveFormsConfig(config: FormsConfig) {
-  const session = await requireSuperAdmin();
+  const callerEmail = await requireAdminOrSuperAdmin();
   const supabase = getServiceClient();
 
   const rows = [
@@ -114,12 +137,25 @@ export async function saveFormsConfig(config: FormsConfig) {
     { key: 'forms_rc_grade_mapping',            value: JSON.stringify(config.rcGradeMapping) },
     { key: 'forms_rc_lower_item_ids',           value: JSON.stringify(config.rcLowerItemIds) },
     { key: 'forms_rc_upper_item_ids',           value: JSON.stringify(config.rcUpperItemIds) },
-  ].map(r => ({ ...r, updated_at: new Date().toISOString(), updated_by: session.email }));
+  ].map(r => ({ ...r, updated_at: new Date().toISOString(), updated_by: callerEmail }));
 
   const { error } = await supabase.from('app_config').upsert(rows, { onConflict: 'key' });
   if (error) return { success: false, error: error.message };
+
+  revalidatePath('/system-admin');
+  revalidatePath('/settings');
   return { success: true };
 }
+
+export async function saveFormsPartialConfig(partial: Partial<FormsConfig>) {
+  const current = await getFormsConfigInternal();
+  const merged: FormsConfig = {
+    ...current,
+    ...partial,
+  };
+  return saveFormsConfig(merged);
+}
+
 
 async function getFormsConfigInternal(): Promise<FormsConfig> {
   const supabase = getServiceClient();
@@ -147,9 +183,16 @@ async function getFormsConfigInternal(): Promise<FormsConfig> {
 }
 
 export async function loadFormsConfig(): Promise<FormsConfig> {
-  await requireSuperAdmin();
+  await requireAdminOrSuperAdmin();
   return getFormsConfigInternal();
 }
+
+/** Alias for use in server components — requires dashboard admin OR super-admin. */
+export async function getFormsConfigForAdmin(): Promise<FormsConfig> {
+  await requireAdminOrSuperAdmin();
+  return getFormsConfigInternal();
+}
+
 
 export async function executeRebuildForms(): Promise<{ success: boolean; error?: string }> {
   const config = await getFormsConfigInternal();
@@ -216,6 +259,6 @@ export async function executeRebuildForms(): Promise<{ success: boolean; error?:
 }
 
 export async function rebuildForms() {
-  await requireSuperAdmin();
+  await requireAdminOrSuperAdmin();
   return executeRebuildForms();
 }
