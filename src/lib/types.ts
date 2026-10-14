@@ -5,7 +5,7 @@
 export type Role = 'rep' | 'admin';
 export type SubStatus = 'active' | 'almost expiring' | 'expired';
 export type Segment = 'Gen. Comm' | 'CDLS' | 'RCS';
-export type ActionStatus = 'Pending' | 'Overdue' | 'Completed' | 'Cancelled';
+export type ActionStatus = 'Pending' | 'Overdue' | 'Completed' | 'Cancelled' | 'Not started' | 'In Progress';
 export type MatchConfidence = 'High' | 'Medium' | 'Low' | 'None';
 
 // ─── Profile ────────────────────────────────────────────────

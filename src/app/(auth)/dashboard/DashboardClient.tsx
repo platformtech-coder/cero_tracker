@@ -24,7 +24,11 @@ function ActionStatusBadge({ status, isOverdue }: { status: string; isOverdue: b
     return <span className={`${styles.badge} ${styles.badgeRed}`}><AlertCircle size={10} /> Overdue</span>;
   if (status === 'Completed')
     return <span className={`${styles.badge} ${styles.badgeGreen}`}><CheckCircle2 size={10} /> Completed</span>;
-  return <span className={`${styles.badge} ${styles.badgeOrange}`}><Clock size={10} /> Pending</span>;
+  if (status === 'In Progress')
+    return <span className={`${styles.badge} ${styles.badgeBlue}`}><Clock size={10} /> In Progress</span>;
+  if (status === 'Not started')
+    return <span className={`${styles.badge} ${styles.badgeOrange}`}><Clock size={10} /> Not started</span>;
+  return <span className={`${styles.badge} ${styles.badgeOrange}`}><Clock size={10} /> {status || 'Pending'}</span>;
 }
 
 // ─── Stat Cards ────────────────────────────────────────────────

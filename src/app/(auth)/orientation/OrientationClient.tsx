@@ -6,7 +6,8 @@ import {
   Search, CheckCircle2, ChevronLeft, ChevronRight,
   Clock, Sparkles, AlertCircle, Users, BookOpen,
   Target, BarChart3, CalendarCheck, Calendar, Loader2,
-  AlertTriangle, ArrowUpDown
+  AlertTriangle, ArrowUpDown, Download, Filter, X,
+  Phone, CheckCircle
 } from 'lucide-react';
 import type { Orientation, PendingSignup, Cub, Profile } from '@/lib/types';
 import {
@@ -141,76 +142,207 @@ function OrientationPendingStats({ pending }: { pending: PendingSignup[] }) {
 }
 
 // ─── Scorecard Stats Panel with Interactive Cohort Date Filters ──
+function toYMD(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const PRESET_OPTIONS = [
   { id: 'all', label: 'All Time' },
-  { id: 'last7', label: 'Last 7 Days' },
-  { id: 'last14', label: 'Last 14 Days' },
-  { id: 'last30', label: 'Last 30 Days' },
+  { id: 'thisWeek', label: 'This week' },
+  { id: 'lastWeek', label: 'Last week' },
   { id: 'thisMonth', label: 'This Month' },
-  { id: 'custom', label: 'Custom Range' },
+  { id: 'custom', label: 'Custom Date' },
 ] as const;
 
 function computePresetDates(preset: string) {
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  if (preset === 'last7') {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return { start: d.toISOString().slice(0, 10), end: todayStr };
+
+  if (preset === 'thisWeek') {
+    // Week starts on Sunday (day 0) and ends on Saturday (day 6)
+    const sunday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+    const saturday = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 6);
+    return { start: toYMD(sunday), end: toYMD(saturday) };
   }
-  if (preset === 'last14') {
-    const d = new Date();
-    d.setDate(d.getDate() - 14);
-    return { start: d.toISOString().slice(0, 10), end: todayStr };
+
+  if (preset === 'lastWeek') {
+    // Previous week Sunday through Saturday
+    const lastSunday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() - 7);
+    const lastSaturday = new Date(lastSunday.getFullYear(), lastSunday.getMonth(), lastSunday.getDate() + 6);
+    return { start: toYMD(lastSunday), end: toYMD(lastSaturday) };
   }
-  if (preset === 'last30') {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return { start: d.toISOString().slice(0, 10), end: todayStr };
-  }
+
   if (preset === 'thisMonth') {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    return { start, end: todayStr };
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { start: toYMD(firstDay), end: toYMD(lastDay) };
   }
+
   return { start: '', end: '' };
 }
 
-function ScorecardStatsPanel({
-  initialMetrics,
-  isAdmin,
-  allReps = [],
-  currentRep = 'All Reps',
-}: {
-  initialMetrics: OrientationScorecardMetrics;
+// ─── Orientation Status Alerts Definition ──────────────────────
+export type OrientationAlertKey = 'suspend_14d' | 'at_risk_8_14' | 'overdue_1on1' | 'unbooked' | 'pending_rc';
+
+export interface AlertBadgeMeta {
+  key: OrientationAlertKey;
+  label: string;
+  badgeClass: string;
+  icon: React.ElementType;
+  description: string;
+}
+
+export const ALERT_METAS: Record<OrientationAlertKey, AlertBadgeMeta> = {
+  suspend_14d: {
+    key: 'suspend_14d',
+    label: 'To Suspend',
+    badgeClass: sharedStyles.badgeRed,
+    icon: AlertTriangle,
+    description: '>14 days, 0 points earned',
+  },
+  at_risk_8_14: {
+    key: 'at_risk_8_14',
+    label: 'At Risk (0 Pts)',
+    badgeClass: sharedStyles.badgeOrange,
+    icon: AlertCircle,
+    description: 'Day 8–14, 0 points earned',
+  },
+  overdue_1on1: {
+    key: 'overdue_1on1',
+    label: '1-on-1 Needed',
+    badgeClass: sharedStyles.badgeOrange,
+    icon: Clock,
+    description: '>7d incomplete orientation',
+  },
+  unbooked: {
+    key: 'unbooked',
+    label: 'Not Yet Booked',
+    badgeClass: sharedStyles.badgeBlue,
+    icon: Calendar,
+    description: 'Awaiting session booking',
+  },
+  pending_rc: {
+    key: 'pending_rc',
+    label: 'Pending RC',
+    badgeClass: sharedStyles.badgePrimary,
+    icon: BookOpen,
+    description: 'Attended, needs RC selection',
+  },
+};
+
+export function getCubAlert(m: OrientationMasterItem): AlertBadgeMeta | null {
+  const isDone = Boolean(m.completion_date) || (m.stage || '').toLowerCase().includes('completed');
+  const days = getDaysSince(m.cubs.date_onboarded);
+  const pts = m.cubs.cumulative_points || 0;
+  const hasAttended = m.attended_status === 'Present';
+  const hasRC = m.rc_selected_status === 'Completed' || Boolean(m.rc_selected_date);
+
+  // 1. To Suspend: >14 days since onboarding, incomplete, 0 points
+  if (days !== null && days > 14 && !isDone && pts === 0) {
+    return ALERT_METAS.suspend_14d;
+  }
+  // 2. At Risk: Day 8-14 since onboarding, incomplete, 0 points
+  if (days !== null && days >= 8 && days <= 14 && !isDone && pts === 0) {
+    return ALERT_METAS.at_risk_8_14;
+  }
+  // 3. Overdue 1-on-1 Needed: >7 days since onboarding, incomplete
+  if (days !== null && days > 7 && !isDone) {
+    return ALERT_METAS.overdue_1on1;
+  }
+  // 4. Pending RC Selection: Attended orientation but has not selected Reading Circle
+  if (hasAttended && !hasRC) {
+    return ALERT_METAS.pending_rc;
+  }
+  // 5. Not Yet Booked: Incomplete and no orientation session booked
+  if (!m.session && !isDone) {
+    return ALERT_METAS.unbooked;
+  }
+  return null;
+}
+
+// ─── CSV Export Function ───────────────────────────────────────
+function downloadCubsCSV(cubs: OrientationMasterItem[], filterLabel: string) {
+  const headers = [
+    'Cub ID',
+    'Cub Name',
+    'Parent Name',
+    'Parent Phone',
+    'Parent Email',
+    'Date Onboarded',
+    'Days Elapsed',
+    'Status Alert',
+    'Orientation Session',
+    'Current Stage',
+    'Attended Status',
+    'RC Selected Status',
+    'First Win Status',
+    'Points',
+    'Relationship Owner'
+  ];
+
+  const rows = cubs.map(m => {
+    const days = getDaysSince(m.cubs.date_onboarded);
+    const alert = getCubAlert(m);
+    return [
+      m.cub_id,
+      `"${(m.cubs.cub_first_name || '') + ' ' + (m.cubs.cub_last_name || '')}"`,
+      `"${(m.cubs.parent_first_name || '') + ' ' + (m.cubs.parent_last_name || '')}"`,
+      `"${m.cubs.parent_phone || ''}"`,
+      `"${m.cubs.parent_email || ''}"`,
+      m.cubs.date_onboarded || '',
+      days !== null ? days : '',
+      `"${alert ? alert.label : 'None'}"`,
+      m.session || 'None',
+      `"${m.stage || ''}"`,
+      m.attended_status || '—',
+      m.rc_selected_status || '—',
+      m.first_win_status || '—',
+      m.cubs.cumulative_points || 0,
+      `"${m.cubs.relationship_owner || ''}"`,
+    ];
+  });
+
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const safeName = filterLabel.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  a.download = `orientation_cubs_${safeName}_${dateStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast.success(`Exported ${cubs.length} cubs to CSV`);
+}
+
+// ─── Comprehensive Orientation Stats Dashboard ────────────────
+interface OrientationStatsDashboardProps {
+  master: OrientationMasterItem[];
   isAdmin?: boolean;
   allReps?: string[];
   currentRep?: string;
-}) {
-  const [metrics, setMetrics] = useState<OrientationScorecardMetrics>(initialMetrics);
+  onSelectRecord: (record: OrientationMasterItem) => void;
+}
+
+function OrientationStatsDashboard({
+  master,
+  isAdmin,
+  allReps = [],
+  currentRep = 'All Reps',
+  onSelectRecord,
+}: OrientationStatsDashboardProps) {
   const [preset, setPreset] = useState<string>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedRep, setSelectedRep] = useState(currentRep);
-  const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    setMetrics(initialMetrics);
-  }, [initialMetrics]);
-
-  const fetchMetrics = useCallback((start: string, end: string, rep: string) => {
-    startTransition(async () => {
-      try {
-        const res = await getOrientationScorecardMetrics(
-          start || null,
-          end || null,
-          rep && rep !== 'All Reps' ? rep : null
-        );
-        setMetrics(res);
-      } catch (err: any) {
-        toast.error('Failed to update metrics: ' + (err?.message || 'Error'));
-      }
-    });
-  }, []);
+  const [activeCard, setActiveCard] = useState<string | null>(null);
+  const [quickFilter, setQuickFilter] = useState<'all_action' | 'to_suspend' | 'at_risk' | '1on1_needed' | 'unbooked' | 'pending_rc' | 'all_cohort'>('all_action');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
   const handlePresetSelect = (id: string) => {
     setPreset(id);
@@ -218,199 +350,724 @@ function ScorecardStatsPanel({
     const { start, end } = computePresetDates(id);
     setStartDate(start);
     setEndDate(end);
-    fetchMetrics(start, end, selectedRep);
+    setPage(1);
   };
 
-  const handleApplyCustom = () => {
-    fetchMetrics(startDate, endDate, selectedRep);
+  // Cohort cubs in active General Community category matching date and rep filter
+  const cohortCubs = useMemo(() => {
+    return master.filter(m => {
+      // General community active or almost expiring
+      const s = (m.cubs.sub_status || '').toLowerCase().trim();
+      if (s !== 'active' && s !== 'almost expiring') return false;
+      if (m.cubs.segment && m.cubs.segment !== 'Gen. Comm') return false;
+
+      // Rep filter
+      if (selectedRep && selectedRep !== 'All Reps' && m.cubs.relationship_owner !== selectedRep) {
+        return false;
+      }
+
+      // Date onboarded range (normalized YYYY-MM-DD comparison)
+      const cubDate = (m.cubs.date_onboarded || '').slice(0, 10);
+      if (startDate && (!cubDate || cubDate < startDate)) {
+        return false;
+      }
+      if (endDate && (!cubDate || cubDate > endDate)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [master, selectedRep, startDate, endDate]);
+
+  // Derived stats and cub groups
+  const stats = useMemo(() => {
+    const total = cohortCubs.length;
+
+    // 1. 7-Day Completion: evaluated cubs are those onboarded >= 7 days ago
+    const evaluated7d = cohortCubs.filter(m => {
+      const days = getDaysSince(m.cubs.date_onboarded);
+      return days !== null && days >= 7;
+    });
+
+    const completed7d = evaluated7d.filter(m => {
+      const isDone = Boolean(m.completion_date) || (m.stage || '').toLowerCase().includes('completed');
+      if (!isDone || !m.completion_date || !m.cubs.date_onboarded) return false;
+      const diff = new Date(m.completion_date).getTime() - new Date(m.cubs.date_onboarded).getTime();
+      return diff <= 7 * 86400000;
+    });
+
+    const rate7d = evaluated7d.length > 0
+      ? Math.round((completed7d.length / evaluated7d.length) * 1000) / 10
+      : 0;
+
+    // 2. RC Conversion: Cubs who attended orientation and selected RC
+    const attended = cohortCubs.filter(m => m.attended_status === 'Present');
+    const rcFromAttended = attended.filter(m => m.rc_selected_status === 'Completed' || Boolean(m.rc_selected_date));
+    const rateRC = attended.length > 0
+      ? Math.round((rcFromAttended.length / attended.length) * 1000) / 10
+      : 0;
+
+    // 3. 1-on-1 Needed: >7d incomplete
+    const overdue1on1 = cohortCubs.filter(m => {
+      const days = getDaysSince(m.cubs.date_onboarded);
+      const isDone = Boolean(m.completion_date) || (m.stage || '').toLowerCase().includes('completed');
+      return days !== null && days > 7 && !isDone;
+    });
+
+    // 4. At Risk (0 Pts): Day 8-14, incomplete, 0 points
+    const atRisk8to14 = cohortCubs.filter(m => {
+      const days = getDaysSince(m.cubs.date_onboarded);
+      const isDone = Boolean(m.completion_date) || (m.stage || '').toLowerCase().includes('completed');
+      const pts = m.cubs.cumulative_points || 0;
+      return days !== null && days >= 8 && days <= 14 && !isDone && pts === 0;
+    });
+
+    // 5. To Suspend: >14 days, incomplete, 0 points
+    const toSuspend14d = cohortCubs.filter(m => {
+      const days = getDaysSince(m.cubs.date_onboarded);
+      const isDone = Boolean(m.completion_date) || (m.stage || '').toLowerCase().includes('completed');
+      const pts = m.cubs.cumulative_points || 0;
+      return days !== null && days > 14 && !isDone && pts === 0;
+    });
+
+    // Funnel volume totals:
+    const booked = cohortCubs.filter(m => Boolean(m.session) || m.booked_status === 'Completed');
+    const rescheduled = cohortCubs.filter(m => m.attended_status === 'Rescheduled');
+    const rcSelected = cohortCubs.filter(m => m.rc_selected_status === 'Completed' || Boolean(m.rc_selected_date));
+    const firstWin = cohortCubs.filter(m => m.first_win_status === 'Yes');
+    const unbooked = cohortCubs.filter(m => {
+      const isDone = Boolean(m.completion_date) || (m.stage || '').toLowerCase().includes('completed');
+      return !m.session && !isDone;
+    });
+    const pendingRC = cohortCubs.filter(m => m.attended_status === 'Present' && m.rc_selected_status !== 'Completed' && !m.rc_selected_date);
+
+    // All action needed:
+    const allActionNeeded = cohortCubs.filter(m => getCubAlert(m) !== null);
+
+    return {
+      total,
+      evaluated7d,
+      completed7d,
+      rate7d,
+      attended,
+      rcFromAttended,
+      rateRC,
+      overdue1on1,
+      atRisk8to14,
+      toSuspend14d,
+      booked,
+      rescheduled,
+      rcSelected,
+      firstWin,
+      unbooked,
+      pendingRC,
+      allActionNeeded,
+    };
+  }, [cohortCubs]);
+
+  // Handle card click toggle
+  const handleCardClick = (cardKey: string) => {
+    if (activeCard === cardKey) {
+      setActiveCard(null);
+    } else {
+      setActiveCard(cardKey);
+      setPage(1);
+    }
   };
 
-  const handleRepChange = (rep: string) => {
-    setSelectedRep(rep);
-    fetchMetrics(startDate, endDate, rep);
-  };
+  // Determine current active cohort list
+  const { currentList, currentLabel } = useMemo(() => {
+    if (activeCard) {
+      switch (activeCard) {
+        case '7d_completed':
+          return { currentList: stats.completed7d, currentLabel: '7-Day On-Time Completed' };
+        case 'rc_converted':
+          return { currentList: stats.rcFromAttended, currentLabel: 'RC Converted (from Attended)' };
+        case '1on1_needed':
+          return { currentList: stats.overdue1on1, currentLabel: '1-on-1 Needed (>7d Incomplete)' };
+        case 'at_risk':
+          return { currentList: stats.atRisk8to14, currentLabel: 'At Risk (Day 8–14, 0 Pts)' };
+        case 'to_suspend':
+          return { currentList: stats.toSuspend14d, currentLabel: 'To Suspend (>14d, 0 Pts)' };
+        case 'total_cohort':
+          return { currentList: cohortCubs, currentLabel: 'Total Cohort' };
+        case 'booked':
+          return { currentList: stats.booked, currentLabel: 'Total Booked' };
+        case 'attended':
+          return { currentList: stats.attended, currentLabel: 'Total Attended' };
+        case 'rescheduled':
+          return { currentList: stats.rescheduled, currentLabel: 'Total Rescheduled' };
+        case 'rc_selected':
+          return { currentList: stats.rcSelected, currentLabel: 'Total RC Selected' };
+        case 'first_win':
+          return { currentList: stats.firstWin, currentLabel: 'Total First Win Sent' };
+        default:
+          return { currentList: stats.allActionNeeded, currentLabel: 'Action Needed' };
+      }
+    }
 
-  const completionRateColor = metrics.completion_rate >= 70 ? 'var(--green)' : metrics.completion_rate >= 40 ? 'var(--orange)' : 'var(--red, #ef4444)';
+    // Default to quick filter tabs
+    switch (quickFilter) {
+      case 'to_suspend':
+        return { currentList: stats.toSuspend14d, currentLabel: 'To Suspend (>14d, 0 Pts)' };
+      case 'at_risk':
+        return { currentList: stats.atRisk8to14, currentLabel: 'At Risk (Day 8–14, 0 Pts)' };
+      case '1on1_needed':
+        return { currentList: stats.overdue1on1, currentLabel: '1-on-1 Needed (>7d)' };
+      case 'unbooked':
+        return { currentList: stats.unbooked, currentLabel: 'Not Yet Booked' };
+      case 'pending_rc':
+        return { currentList: stats.pendingRC, currentLabel: 'Pending RC Selection' };
+      case 'all_cohort':
+        return { currentList: cohortCubs, currentLabel: 'All Cohort Cubs' };
+      case 'all_action':
+      default:
+        return { currentList: stats.allActionNeeded, currentLabel: 'All Action-Needed Cubs' };
+    }
+  }, [activeCard, quickFilter, stats, cohortCubs]);
+
+  // Apply search query
+  const filteredCubs = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return currentList;
+    return currentList.filter(m =>
+      `${m.cubs.cub_first_name} ${m.cubs.cub_last_name} ${m.cub_id}`.toLowerCase().includes(q) ||
+      `${m.cubs.parent_first_name} ${m.cubs.parent_last_name} ${m.cubs.parent_phone ?? ''}`.toLowerCase().includes(q) ||
+      (m.cubs.relationship_owner || '').toLowerCase().includes(q) ||
+      (m.session || '').toLowerCase().includes(q) ||
+      (m.stage || '').toLowerCase().includes(q)
+    );
+  }, [currentList, search]);
+
+  const paginatedCubs = filteredCubs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Card styles
+  const getCardStyle = (isActive: boolean, accentColor?: string): React.CSSProperties => ({
+    background: 'var(--bg-card)',
+    border: isActive ? '2px solid var(--primary)' : '1px solid var(--border)',
+    borderRadius: 12,
+    padding: '1.1rem 1.25rem',
+    cursor: 'pointer',
+    transition: 'all 0.18s ease',
+    boxShadow: isActive ? '0 0 0 3px var(--primary-dim)' : '0 2px 8px rgba(0,0,0,0.04)',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    position: 'relative',
+    overflow: 'hidden',
+    borderTop: accentColor && !isActive ? `3px solid ${accentColor}` : undefined,
+  });
 
   return (
     <div>
+      {/* ─── Cohort Date Filter Toolbar ──────────────────────────────── */}
       <div style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
         borderRadius: 12,
-        padding: '1rem 1.25rem',
+        padding: '0.85rem 1.25rem',
         marginBottom: '1.25rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '0.75rem',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Calendar size={15} style={{ color: 'var(--primary)' }} />
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-1)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginRight: '0.25rem' }}>
+            <Calendar size={16} style={{ color: 'var(--primary)' }} />
+            <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-1)' }}>
               Cohort Date Filter (Date Onboarded)
             </span>
-            {isPending && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />}
           </div>
 
+          {/* Date Range Dropdown */}
+          <select
+            value={preset}
+            onChange={(e) => handlePresetSelect(e.target.value)}
+            className={sharedStyles.filterSelect}
+            style={{ minWidth: '150px', width: 'auto' }}
+          >
+            {PRESET_OPTIONS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+
+          {/* Rep Dropdown */}
           {allReps.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Rep:</span>
-              <select
-                value={selectedRep}
-                onChange={(e) => handleRepChange(e.target.value)}
-                className={sharedStyles.filterSelect}
-                style={{ width: 'auto' }}
+            <select
+              value={selectedRep}
+              onChange={(e) => { setSelectedRep(e.target.value); setPage(1); }}
+              className={sharedStyles.filterSelect}
+              style={{ minWidth: '140px', width: 'auto' }}
+            >
+              <option value="All Reps">All Reps</option>
+              {allReps.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Custom Date Range Picker (shown when preset === 'custom') */}
+          {preset === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>From:</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  style={{
+                    padding: '0.35rem 0.5rem',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-1)',
+                    fontSize: '0.8rem',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>To:</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  style={{
+                    padding: '0.35rem 0.5rem',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-1)',
+                    fontSize: '0.8rem',
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setPage(1)}
+                style={{
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: 6,
+                  background: 'var(--primary)',
+                  color: '#fff',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
               >
-                <option value="All Reps">All Reps</option>
-                {allReps.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
+                Apply
+              </button>
             </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {PRESET_OPTIONS.map((p) => {
-            const isActive = preset === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => handlePresetSelect(p.id)}
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  fontSize: '0.78rem',
-                  fontWeight: 500,
-                  borderRadius: 20,
-                  border: isActive ? '1px solid var(--primary)' : '1px solid var(--border)',
-                  background: isActive ? 'var(--primary-dim)' : 'var(--bg-2)',
-                  color: isActive ? 'var(--primary)' : 'var(--text-2)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {preset === 'custom' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>From:</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{
-                  padding: '0.35rem 0.5rem',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-input)',
-                  color: 'var(--text-1)',
-                  fontSize: '0.8rem',
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>To:</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={{
-                  padding: '0.35rem 0.5rem',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-input)',
-                  color: 'var(--text-1)',
-                  fontSize: '0.8rem',
-                }}
-              />
-            </div>
-            <button
-              onClick={handleApplyCustom}
-              disabled={isPending}
-              style={{
-                padding: '0.35rem 0.85rem',
-                borderRadius: 6,
-                background: 'var(--primary)',
-                color: '#fff',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Apply Filter
-            </button>
+        {/* Date Active Range Display Badge */}
+        {(startDate || endDate) && preset !== 'all' && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', background: 'var(--bg-2)', padding: '0.3rem 0.75rem', borderRadius: 6, border: '1px solid var(--border)' }}>
+            Active Range: <strong style={{ color: 'var(--text-1)' }}>{startDate || 'Start'}</strong> to <strong style={{ color: 'var(--text-1)' }}>{endDate || 'End'}</strong>
           </div>
         )}
       </div>
 
+      {/* ─── PRIMARY PERFORMANCE KPIS (Clickable Cards) ─────────── */}
+      <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)', fontWeight: 700 }}>
+          Primary Performance KPIs <span style={{ fontWeight: 400, textTransform: 'none' }}>(Click card to reveal cubs)</span>
+        </span>
+      </div>
+
       <div style={{
-        background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14,
-        padding: '1.5rem', marginBottom: '1.25rem', textAlign: 'center',
-        opacity: isPending ? 0.7 : 1, transition: 'opacity 0.2s',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+        gap: '0.85rem',
+        marginBottom: '1.25rem',
       }}>
-        <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>
-          7-Day Orientation Completion Rate
-        </div>
-        <div style={{ fontSize: '2.75rem', fontWeight: 800, color: completionRateColor, lineHeight: 1 }}>
-          {metrics.completion_rate}%
-        </div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: '0.5rem' }}>
-          {metrics.completed_within_7d} of {metrics.window_elapsed} evaluated Cubs completed within 7 days
-        </div>
-        {metrics.in_window > 0 && (
-          <div style={{ fontSize: '0.72rem', color: 'var(--blue)', marginTop: '0.25rem' }}>
-            {metrics.in_window} Cubs currently in 7-day evaluation window (not yet evaluated)
+        {/* 1. 7-Day Completion */}
+        <div
+          style={getCardStyle(activeCard === '7d_completed', 'var(--green)')}
+          onClick={() => handleCardClick('7d_completed')}
+          title="Click to view cubs who completed orientation within first 7 days"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              7-Day Completion
+            </span>
+            <span style={{ background: 'var(--green-dim)', color: 'var(--green)', borderRadius: 6, padding: '4px', display: 'flex' }}>
+              <Target size={15} />
+            </span>
           </div>
-        )}
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: stats.rate7d >= 70 ? 'var(--green)' : stats.rate7d >= 40 ? 'var(--orange)' : 'var(--red)', lineHeight: 1.1 }}>
+            {stats.rate7d}%
+          </div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.4rem' }}>
+            <strong>{stats.completed7d.length}</strong> of {stats.evaluated7d.length} eligible cubs (≥7d)
+          </div>
+        </div>
+
+        {/* 2. RC Conversion */}
+        <div
+          style={getCardStyle(activeCard === 'rc_converted', 'var(--primary)')}
+          onClick={() => handleCardClick('rc_converted')}
+          title="Click to view cubs who selected Reading Circle out of those who attended orientation"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              RC Conversion
+            </span>
+            <span style={{ background: 'var(--primary-dim)', color: 'var(--primary)', borderRadius: 6, padding: '4px', display: 'flex' }}>
+              <BookOpen size={15} />
+            </span>
+          </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1.1 }}>
+            {stats.rateRC}%
+          </div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.4rem' }}>
+            <strong>{stats.rcFromAttended.length}</strong> of {stats.attended.length} attended cubs
+          </div>
+        </div>
+
+        {/* 3. 1-on-1 Needed */}
+        <div
+          style={getCardStyle(activeCard === '1on1_needed', 'var(--orange)')}
+          onClick={() => handleCardClick('1on1_needed')}
+          title="Click to view cubs who did not complete orientation within 7 days"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              1-on-1 Needed
+            </span>
+            <span style={{ background: 'var(--orange-dim)', color: 'var(--orange)', borderRadius: 6, padding: '4px', display: 'flex' }}>
+              <Clock size={15} />
+            </span>
+          </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--orange)', lineHeight: 1.1 }}>
+            {stats.overdue1on1.length}
+          </div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.4rem' }}>
+            &gt;7d incomplete orientation
+          </div>
+        </div>
+
+        {/* 4. At Risk (0 Pts) */}
+        <div
+          style={getCardStyle(activeCard === 'at_risk', '#f59e0b')}
+          onClick={() => handleCardClick('at_risk')}
+          title="Click to view cubs with 0 points after 8-14 days"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              At Risk (0 Pts)
+            </span>
+            <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#d97706', borderRadius: 6, padding: '4px', display: 'flex' }}>
+              <AlertCircle size={15} />
+            </span>
+          </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: '#d97706', lineHeight: 1.1 }}>
+            {stats.atRisk8to14.length}
+          </div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.4rem' }}>
+            Day 8–14, 0 points earned
+          </div>
+        </div>
+
+        {/* 5. To Suspend */}
+        <div
+          style={getCardStyle(activeCard === 'to_suspend', 'var(--red)')}
+          onClick={() => handleCardClick('to_suspend')}
+          title="Click to view cubs with 0 points after 14 days eligible for suspension"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              To Suspend
+            </span>
+            <span style={{ background: 'var(--red-dim)', color: 'var(--red)', borderRadius: 6, padding: '4px', display: 'flex' }}>
+              <AlertTriangle size={15} />
+            </span>
+          </div>
+          <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--red)', lineHeight: 1.1 }}>
+            {stats.toSuspend14d.length}
+          </div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-2)', marginTop: '0.4rem' }}>
+            &gt;14 days, 0 points earned
+          </div>
+        </div>
+      </div>
+
+      {/* ─── FUNNEL & VOLUME TOTALS ──────────────────────────────── */}
+      <div style={{ marginBottom: '0.5rem' }}>
+        <span style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)', fontWeight: 700 }}>
+          Journey Volume Totals <span style={{ fontWeight: 400, textTransform: 'none' }}>(Click to view list)</span>
+        </span>
       </div>
 
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem',
-        opacity: isPending ? 0.7 : 1, transition: 'opacity 0.2s',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+        gap: '0.75rem',
+        marginBottom: '1.5rem',
       }}>
         {[
-          { label: 'Total Gen. Comm', value: metrics.total_eligible, icon: Users, color: 'var(--primary)', bg: 'var(--primary-dim)' },
-          { label: 'Awaiting Invite', value: metrics.awaiting_invitation, icon: Clock, color: 'var(--orange)', bg: 'var(--orange-dim)' },
-          { label: 'Invited / Booking', value: metrics.invited_not_booked, icon: CalendarCheck, color: 'var(--blue)', bg: 'var(--blue-dim)' },
-          { label: 'Booked', value: metrics.booked_confirmed, icon: CheckCircle2, color: 'var(--green)', bg: 'var(--green-dim)' },
-          { label: 'Attended', value: metrics.attended, icon: Users, color: 'var(--primary)', bg: 'var(--primary-dim)' },
-          { label: 'Completed Journey', value: metrics.completed, icon: Sparkles, color: 'var(--green)', bg: 'var(--green-dim)' },
-          { label: 'On-Time (≤7d)', value: metrics.completed_within_7d, icon: Target, color: 'var(--green)', bg: 'var(--green-dim)' },
-          { label: 'Late (>7d)', value: metrics.completed_late, icon: Clock, color: 'var(--orange)', bg: 'var(--orange-dim)' },
-          { label: 'Missed Target', value: metrics.missed_target, icon: AlertCircle, color: 'var(--red, #ef4444)', bg: 'var(--red-dim, #fee2e2)' },
-          { label: 'Pending RC', value: metrics.pending_rc, icon: BookOpen, color: 'var(--blue)', bg: 'var(--blue-dim)' },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ background: bg, color, borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Icon size={15} />
+          { key: 'total_cohort', label: 'Total Cohort', value: stats.total, icon: Users, color: 'var(--primary)', bg: 'var(--primary-dim)' },
+          { key: 'booked', label: 'Booked', value: stats.booked.length, icon: CalendarCheck, color: 'var(--blue)', bg: 'var(--blue-dim)' },
+          { key: 'attended', label: 'Attended', value: stats.attended.length, icon: CheckCircle2, color: 'var(--green)', bg: 'var(--green-dim)' },
+          { key: 'rescheduled', label: 'Rescheduled', value: stats.rescheduled.length, icon: Clock, color: 'var(--orange)', bg: 'var(--orange-dim)' },
+          { key: 'rc_selected', label: 'RC Selected', value: stats.rcSelected.length, icon: BookOpen, color: 'var(--primary)', bg: 'var(--primary-dim)' },
+          { key: 'first_win', label: 'First Win Sent', value: stats.firstWin.length, icon: Sparkles, color: 'var(--green)', bg: 'var(--green-dim)' },
+        ].map(({ key, label, value, icon: Icon, color, bg }) => {
+          const isSelected = activeCard === key;
+          return (
+            <div
+              key={key}
+              onClick={() => handleCardClick(key)}
+              style={{
+                background: 'var(--bg-card)',
+                border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                borderRadius: 10,
+                padding: '0.75rem 0.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: isSelected ? '0 0 0 2px var(--primary-dim)' : 'none',
+              }}
+            >
+              <div style={{ background: bg, color, borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={15} />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-1)', lineHeight: 1 }}>{value}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginTop: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+              </div>
             </div>
-            <div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-1)', lineHeight: 1 }}>{value}</div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginTop: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {metrics.missing_onboarding_date > 0 && (
-        <div style={{
-          background: 'var(--orange-dim)', border: '1px solid var(--orange)',
-          borderRadius: 8, padding: '0.75rem 1rem', fontSize: '0.8rem', color: 'var(--text-2)',
-        }}>
-          <AlertCircle size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-          <strong>{metrics.missing_onboarding_date}</strong> Cubs are missing an onboarding date and are excluded from scorecard calculations.
+      {/* ─── INTERACTIVE ACTION QUEUE & COHORT DIRECTORY ────────── */}
+      <div className={sharedStyles.tableWrap}>
+        {/* Controls Bar */}
+        <div className={sharedStyles.tableControls} style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '0.5rem', flex: 1 }}>
+            {/* Search Box */}
+            <div style={{ position: 'relative', minWidth: '220px' }}>
+              <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+              <input
+                className={sharedStyles.searchInput}
+                style={{ paddingLeft: '2rem', width: '100%' }}
+                placeholder="Search cubs, parents, phone, rep..."
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+              />
+            </div>
+
+            {/* Status Alert Filter Dropdown */}
+            <select
+              className={sharedStyles.filterSelect}
+              value={activeCard ? '__card__' : quickFilter}
+              onChange={e => {
+                const val = e.target.value;
+                setActiveCard(null);
+                setQuickFilter(val as any);
+                setPage(1);
+              }}
+              style={{ minWidth: '200px', width: 'auto' }}
+            >
+              {activeCard && (
+                <option value="__card__" disabled>
+                  Selected: {currentLabel} ({filteredCubs.length})
+                </option>
+              )}
+              <option value="all_action">Action Needed ({stats.allActionNeeded.length})</option>
+              <option value="to_suspend">To Suspend ({stats.toSuspend14d.length})</option>
+              <option value="at_risk">At Risk ({stats.atRisk8to14.length})</option>
+              <option value="1on1_needed">1-on-1 Needed ({stats.overdue1on1.length})</option>
+              <option value="unbooked">Not Booked ({stats.unbooked.length})</option>
+              <option value="pending_rc">Pending RC ({stats.pendingRC.length})</option>
+              <option value="all_cohort">All Cohort ({cohortCubs.length})</option>
+            </select>
+          </div>
+
+          {/* Right Action: CSV Export & Clear */}
+          <div className={sharedStyles.tableControlsRight} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            {activeCard && (
+              <button
+                type="button"
+                onClick={() => { setActiveCard(null); setPage(1); }}
+                style={{
+                  padding: '0.4rem 0.75rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text-2)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <X size={12} /> Clear Filter
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => downloadCubsCSV(filteredCubs, currentLabel)}
+              style={{
+                padding: '0.4rem 0.85rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                borderRadius: 6,
+                border: 'none',
+                background: 'var(--primary)',
+                color: '#fff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              }}
+              title="Download currently visible cubs as CSV"
+            >
+              <Download size={13} />
+              <span>Download CSV</span>
+            </button>
+          </div>
         </div>
-      )}
+
+        {/* Filter Indicator Banner */}
+        <div style={{
+          background: 'var(--bg-input)',
+          borderBottom: '1px solid var(--border)',
+          padding: '0.5rem 1rem',
+          fontSize: '0.78rem',
+          color: 'var(--text-2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div>
+            Showing: <strong>{currentLabel}</strong>
+            {search && <span style={{ marginLeft: 6, color: 'var(--primary)' }}>(matching &ldquo;{search}&rdquo;)</span>}
+          </div>
+          <span className={sharedStyles.sectionCount}>
+            {filteredCubs.length} {filteredCubs.length === 1 ? 'Cub' : 'Cubs'}
+          </span>
+        </div>
+
+        {/* Cubs Table */}
+        {paginatedCubs.length === 0 ? (
+          <div className={sharedStyles.emptyState}>
+            <div className={sharedStyles.emptyStateTitle}>No cubs found</div>
+            <div className={sharedStyles.emptyStateSub}>No cubs match the current filter and date range.</div>
+          </div>
+        ) : (
+          <div className={sharedStyles.tableScrollBody}>
+            <table className={sharedStyles.table}>
+              <thead>
+                <tr>
+                  <th>Cub</th>
+                  <th>Parent</th>
+                  <th>Onboarded</th>
+                  <th>Status Alert</th>
+                  <th>Session & Stage</th>
+                  <th>Points</th>
+                  <th>Rep</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedCubs.map(m => {
+                  const alert = getCubAlert(m);
+                  const days = getDaysSince(m.cubs.date_onboarded);
+                  const pts = m.cubs.cumulative_points || 0;
+
+                  return (
+                    <tr
+                      key={m.id}
+                      onClick={() => onSelectRecord(m)}
+                      style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                      title="Click row to open orientation journey drawer"
+                    >
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{m.cubs.cub_first_name} {m.cubs.cub_last_name}</div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: 'var(--text-3)' }}>{m.cub_id}</div>
+                      </td>
+
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{m.cubs.parent_first_name} {m.cubs.parent_last_name}</div>
+                        {m.cubs.parent_phone && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Phone size={10} /> {m.cubs.parent_phone}
+                          </div>
+                        )}
+                      </td>
+
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.82rem' }}>
+                          {m.cubs.date_onboarded ? formatDate(m.cubs.date_onboarded) : '—'}
+                        </div>
+                        <div style={{ marginTop: '2px' }}>
+                          <DaysElapsedBadge dateStr={m.cubs.date_onboarded} />
+                        </div>
+                      </td>
+
+                      <td>
+                        {alert ? (
+                          <span className={`${sharedStyles.badge} ${alert.badgeClass}`}>
+                            <alert.icon size={11} style={{ marginRight: 3 }} /> {alert.label}
+                          </span>
+                        ) : (
+                          <span className={`${sharedStyles.badge} ${sharedStyles.badgeGray}`}>Normal</span>
+                        )}
+                      </td>
+
+                      <td>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: m.session === 'Tuesday' ? 'var(--blue)' : m.session === 'Sunday' ? 'var(--orange)' : 'var(--text-3)' }}>
+                          {m.session || '— Not Booked'}
+                        </div>
+                        <div style={{ marginTop: '3px' }}>
+                          <StageBadge stage={m.stage} stageStatus={m.stage_status} />
+                        </div>
+                      </td>
+
+                      <td>
+                        <span style={{
+                          fontWeight: 700,
+                          fontSize: '0.85rem',
+                          color: pts === 0 && days && days > 7 ? 'var(--red)' : 'var(--text-1)'
+                        }}>
+                          {pts} pts
+                        </span>
+                      </td>
+
+                      <td style={{ fontSize: '0.82rem' }}>
+                        {m.cubs.relationship_owner || '—'}
+                      </td>
+
+                      <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>
+                        <ChevronRight size={15} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <Pagination page={page} total={filteredCubs.length} pageSize={PAGE_SIZE} onChange={setPage} />
+      </div>
     </div>
   );
 }
 
 // ─── Main Component Props ───────────────────────────────────────
-type TabType = 'pending' | 'newCubs' | 'upcoming' | 'master' | 'stats';
+type TabType = 'stats' | 'master' | 'newCubs' | 'pending' | 'upcoming';
 
 interface Props {
   initialMaster: OrientationMasterItem[];
@@ -435,11 +1092,11 @@ export default function OrientationClient({
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
   const tab: TabType =
-    rawTab === 'newCubs' ? 'newCubs'
+    rawTab === 'master' ? 'master'
+    : rawTab === 'newCubs' ? 'newCubs'
+    : rawTab === 'pending' ? 'pending'
     : rawTab === 'upcoming' ? 'upcoming'
-    : rawTab === 'master' ? 'master'
-    : rawTab === 'stats' ? 'stats'
-    : 'pending';
+    : 'stats';
 
   const setTab = useCallback((t: TabType) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -712,17 +1369,12 @@ export default function OrientationClient({
       if (masterPrimaryFilter === 'stage' && masterSecondaryFilter) {
         if (m.stage !== masterSecondaryFilter) return false;
       }
-      if (masterPrimaryFilter === 'alert' && masterSecondaryFilter) {
-        if (masterSecondaryFilter === 'overdue_7d') {
-          const days = getDaysSince(m.cubs.date_onboarded);
-          if (days === null || days <= 7 || m.completion_date || m.stage === 'Completed') return false;
-        } else if (masterSecondaryFilter === 'at_risk_14d') {
-          const days = getDaysSince(m.cubs.date_onboarded);
-          if (days === null || days <= 14 || m.attended_status === 'Present' || (m.cubs.cumulative_points || 0) > 0) return false;
-        } else if (masterSecondaryFilter === 'needs_rc') {
-          if (m.attended_status !== 'Present' || m.rc_selected_status === 'Completed') return false;
-        } else if (masterSecondaryFilter === 'unbooked') {
-          if (m.session) return false;
+      if (masterPrimaryFilter === 'alert') {
+        const alert = getCubAlert(m);
+        if (!masterSecondaryFilter) {
+          if (!alert) return false;
+        } else if (alert?.key !== masterSecondaryFilter) {
+          return false;
         }
       }
 
@@ -803,28 +1455,10 @@ export default function OrientationClient({
       {/* Navigation Tabs */}
       <div className={tabStyles.tabs}>
         <button
-          className={`${tabStyles.tabBtn} ${tab === 'pending' ? tabStyles.tabBtnActive : ''}`}
-          onClick={() => setTab('pending')}
+          className={`${tabStyles.tabBtn} ${tab === 'stats' ? tabStyles.tabBtnActive : ''}`}
+          onClick={() => setTab('stats')}
         >
-          Booking Confirmation {pending.length > 0 && <span className={tabStyles.tabBadge}>{pending.length}</span>}
-        </button>
-
-        <button
-          className={`${tabStyles.tabBtn} ${tab === 'newCubs' ? tabStyles.tabBtnActive : ''}`}
-          onClick={() => setTab('newCubs')}
-        >
-          New Cubs Pipeline {newCubsList.length > 0 && (
-            <span className={tabStyles.tabBadge} style={{ background: 'var(--orange)', color: '#fff' }}>
-              {newCubsList.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          className={`${tabStyles.tabBtn} ${tab === 'upcoming' ? tabStyles.tabBtnActive : ''}`}
-          onClick={() => setTab('upcoming')}
-        >
-          Upcoming Sessions {upcomingList.length > 0 && <span className={tabStyles.tabBadge}>{upcomingList.length}</span>}
+          <BarChart3 size={13} style={{ marginRight: 4 }} /> Stats
         </button>
 
         <button
@@ -835,112 +1469,219 @@ export default function OrientationClient({
         </button>
 
         <button
-          className={`${tabStyles.tabBtn} ${tab === 'stats' ? tabStyles.tabBtnActive : ''}`}
-          onClick={() => setTab('stats')}
+          className={`${tabStyles.tabBtn} ${tab === 'newCubs' ? tabStyles.tabBtnActive : ''}`}
+          onClick={() => setTab('newCubs')}
         >
-          <BarChart3 size={13} style={{ marginRight: 4 }} /> Stats
+          New Cubs {newCubsList.length > 0 && (
+            <span className={tabStyles.tabBadge} style={{ background: 'var(--orange)', color: '#fff' }}>
+              {newCubsList.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          className={`${tabStyles.tabBtn} ${tab === 'pending' ? tabStyles.tabBtnActive : ''}`}
+          onClick={() => setTab('pending')}
+        >
+          Booking Confirmation {pending.length > 0 && <span className={tabStyles.tabBadge}>{pending.length}</span>}
+        </button>
+
+        <button
+          className={`${tabStyles.tabBtn} ${tab === 'upcoming' ? tabStyles.tabBtnActive : ''}`}
+          onClick={() => setTab('upcoming')}
+        >
+          Upcoming Sessions {upcomingList.length > 0 && <span className={tabStyles.tabBadge}>{upcomingList.length}</span>}
         </button>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          TAB 1: BOOKING CONFIRMATION
-          Action buttons removed, entire row clickable to open drawer
+          TAB 1: STATS & ACTION QUEUE DASHBOARD
       ───────────────────────────────────────────────────────────── */}
-      {tab === 'pending' && (
+      {tab === 'stats' && (
+        <OrientationStatsDashboard
+          master={master}
+          isAdmin={isAdmin}
+          allReps={dynamicReps}
+          currentRep={currentRep}
+          onSelectRecord={setDrawerRecord}
+        />
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          TAB 2: MASTER JOURNEY (ACTIVE SUBSCRIBERS ONLY)
+          Dynamic cascading filters like Cubs Directory: All -> Rep / Session / Stage / Status Alert
+      ───────────────────────────────────────────────────────────── */}
+      {tab === 'master' && (
         <>
           <div className={sharedStyles.tableWrap}>
+            {/* Dynamic Cascading Filter Controls */}
             <div className={sharedStyles.tableControls}>
-              <div className={sharedStyles.tableControlsLeft}>
+              <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap' }}>
+                {/* Search */}
                 <div style={{ position: 'relative', flex: 0 }}>
                   <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
                   <input
                     className={sharedStyles.searchInput}
                     style={{ paddingLeft: '2rem' }}
-                    placeholder="Search bookings by cub, parent, phone..."
-                    value={pendingSearch}
-                    onChange={e => { setPendingSearch(e.target.value); setPendingPage(1); }}
+                    placeholder="Search cubs, parents, phone..."
+                    value={masterSearch}
+                    onChange={e => { setMasterSearch(e.target.value); setMasterPage(1); }}
                   />
                 </div>
+
+                {/* Primary Filter Select */}
+                <select
+                  className={sharedStyles.filterSelect}
+                  value={masterPrimaryFilter}
+                  onChange={handleMasterPrimaryChange}
+                  style={{ width: '160px' }}
+                >
+                  <option value="">All</option>
+                  <option value="rep">Rep</option>
+                  <option value="session">Session Day</option>
+                  <option value="stage">Stage</option>
+                  <option value="alert">Status Alert</option>
+                </select>
+
+                {/* Secondary Cascading Filter Select */}
+                {masterPrimaryFilter === 'rep' && (
+                  <select
+                    className={sharedStyles.filterSelect}
+                    value={masterSecondaryFilter}
+                    onChange={handleMasterSecondaryChange}
+                    style={{ width: '180px' }}
+                  >
+                    <option value="">All Reps</option>
+                    {dynamicReps.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                )}
+
+                {masterPrimaryFilter === 'session' && (
+                  <select
+                    className={sharedStyles.filterSelect}
+                    value={masterSecondaryFilter}
+                    onChange={handleMasterSecondaryChange}
+                    style={{ width: '180px' }}
+                  >
+                    <option value="">All Sessions</option>
+                    <option value="Tuesday">Tuesday</option>
+                    <option value="Sunday">Sunday</option>
+                    <option value="Not Booked">Not Booked</option>
+                  </select>
+                )}
+
+                {masterPrimaryFilter === 'stage' && (
+                  <select
+                    className={sharedStyles.filterSelect}
+                    value={masterSecondaryFilter}
+                    onChange={handleMasterSecondaryChange}
+                    style={{ width: '200px' }}
+                  >
+                    <option value="">All Stages</option>
+                    {availableStages.map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                )}
+
+                {masterPrimaryFilter === 'alert' && (
+                  <select
+                    className={sharedStyles.filterSelect}
+                    value={masterSecondaryFilter}
+                    onChange={handleMasterSecondaryChange}
+                    style={{ width: '270px' }}
+                  >
+                    <option value="">All Status Alerts (Action Needed)</option>
+                    <option value="overdue_1on1">1. Overdue One on One needed (&gt;7d Incomplete)</option>
+                    <option value="at_risk_8_14">2. At Risk (between 8 - 14, 0 Points)</option>
+                    <option value="suspend_14d">3. Subs to suspend (&gt;14 days, 0 points)</option>
+                    <option value="unbooked">4. Not Yet Booked</option>
+                    <option value="pending_rc">5. Pending RC selection</option>
+                  </select>
+                )}
               </div>
+
               <div className={sharedStyles.tableControlsRight}>
-                <span className={sharedStyles.sectionCount}>{filteredPending.length} of {pending.length}</span>
+                <span className={sharedStyles.sectionCount}>{filteredMaster.length} of {activeMaster.length}</span>
               </div>
             </div>
 
-            {paginatedPending.length === 0 ? (
+            {paginatedMaster.length === 0 ? (
               <div className={sharedStyles.emptyState}>
-                <div className={sharedStyles.emptyStateTitle}>{pendingSearch ? 'No matches found' : 'No pending bookings'}</div>
-                <div className={sharedStyles.emptyStateSub}>{pendingSearch ? 'Try a different search term' : 'Incoming Google Form orientation submissions will appear here'}</div>
+                <div className={sharedStyles.emptyStateTitle}>
+                  {masterSearch || masterPrimaryFilter
+                    ? 'No matches found'
+                    : 'No active subscribers in journey'}
+                </div>
+                <div className={sharedStyles.emptyStateSub}>Try adjusting search or dynamic filter criteria</div>
               </div>
             ) : (
               <div className={sharedStyles.tableScrollBody}>
                 <table className={sharedStyles.table}>
                   <thead>
                     <tr>
-                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('created_at')}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          Submitted
-                          {getPendingSortIndicator('created_at') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                        </div>
-                      </th>
-                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('cub_name')}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          Cub
-                          {getPendingSortIndicator('cub_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                        </div>
-                      </th>
-                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('parent_name')}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          Parent
-                          {getPendingSortIndicator('parent_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                        </div>
-                      </th>
-                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('selected_session')}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          Preferred Day
-                          {getPendingSortIndicator('selected_session') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                        </div>
-                      </th>
-                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('match_confidence')}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          Match Confidence
-                          {getPendingSortIndicator('match_confidence') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                        </div>
-                      </th>
-                      <th style={{ width: 36, textAlign: 'right' }}></th>
+                      <th>Cub</th>
+                      <th>Parent</th>
+                      <th>Onboarded</th>
+                      <th>Status Alert</th>
+                      <th>Session</th>
+                      <th>Stage</th>
+                      <th>Next Stage</th>
+                      <th>Sub Status</th>
+                      <th>Rep</th>
+                      <th style={{ width: 32 }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedPending.map(p => (
+                    {paginatedMaster.map(m => (
                       <tr
-                        key={p.id}
-                        onClick={() => setSelectedPending(p)}
+                        key={m.id}
+                        onClick={() => setDrawerRecord(m)}
                         style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
-                        title="Click row to review and confirm booking"
+                        title="Click row to open orientation journey drawer"
                       >
-                        <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{p.cub_name}</div>
-                          <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>
-                            {p.matched_cub_id ? (
-                              `Matched: ${p.matched_cub_id}`
-                            ) : p.library_card ? (
-                              `ID: ${p.library_card}`
-                            ) : (
-                              <span style={{ color: 'var(--orange, #eab308)', fontWeight: 500 }}>Unlinked</span>
-                            )}
-                          </div>
+                          <div style={{ fontWeight: 600 }}>{m.cubs.cub_first_name} {m.cubs.cub_last_name}</div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>{m.cub_id}</div>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>
-                            {p.parent_name && p.parent_name !== p.parent_phone && !/^[\d\s+\-()]{6,}$/.test(p.parent_name)
-                              ? p.parent_name
-                              : '—'}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{p.parent_phone || '—'}</div>
+                          <div style={{ fontWeight: 600 }}>{m.cubs.parent_first_name} {m.cubs.parent_last_name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{m.cubs.parent_phone || '—'}</div>
                         </td>
-                        <td style={{ fontSize: '0.82rem' }}>{p.selected_session || '—'}</td>
-                        <td><ConfidenceBadge confidence={p.match_confidence} /></td>
+                        <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                          {m.cubs.date_onboarded ? formatDate(m.cubs.date_onboarded) : '—'}
+                        </td>
+                        <td>
+                          {(() => {
+                            const alert = getCubAlert(m);
+                            if (alert) {
+                              const AlertIcon = alert.icon;
+                              return (
+                                <span className={`${sharedStyles.badge} ${alert.badgeClass}`}>
+                                  <AlertIcon size={11} style={{ marginRight: 3 }} /> {alert.label}
+                                </span>
+                              );
+                            }
+                            return <span className={`${sharedStyles.badge} ${sharedStyles.badgeGray}`}>Normal</span>;
+                          })()}
+                        </td>
+                        <td style={{ fontSize: '0.82rem' }}>
+                          {m.session ? (
+                            <span style={{ fontWeight: 600, color: m.session === 'Tuesday' ? 'var(--blue)' : 'var(--orange)' }}>
+                              {m.session}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-3)' }}>— Not Booked</span>
+                          )}
+                        </td>
+                        <td><StageBadge stage={m.stage} stageStatus={m.stage_status} /></td>
+                        <td style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>{m.next_stage || '—'}</td>
+                        <td>
+                          <span className={`${sharedStyles.badge} ${sharedStyles.badgeGreen}`}>Active</span>
+                        </td>
+                        <td style={{ fontSize: '0.82rem' }}>{m.cubs.relationship_owner}</td>
                         <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>
                           <ChevronRight size={15} />
                         </td>
@@ -950,7 +1691,7 @@ export default function OrientationClient({
                 </table>
               </div>
             )}
-            <Pagination page={pendingPage} total={filteredPending.length} pageSize={PAGE_SIZE} onChange={setPendingPage} />
+            <Pagination page={masterPage} total={filteredMaster.length} pageSize={PAGE_SIZE} onChange={setMasterPage} />
           </div>
         </>
       )}
@@ -1124,7 +1865,120 @@ export default function OrientationClient({
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          TAB 3: UPCOMING SESSIONS
+          TAB 4: BOOKING CONFIRMATION
+          Action buttons removed, entire row clickable to open drawer
+      ───────────────────────────────────────────────────────────── */}
+      {tab === 'pending' && (
+        <>
+          <div className={sharedStyles.tableWrap}>
+            <div className={sharedStyles.tableControls}>
+              <div className={sharedStyles.tableControlsLeft}>
+                <div style={{ position: 'relative', flex: 0 }}>
+                  <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+                  <input
+                    className={sharedStyles.searchInput}
+                    style={{ paddingLeft: '2rem' }}
+                    placeholder="Search bookings by cub, parent, phone..."
+                    value={pendingSearch}
+                    onChange={e => { setPendingSearch(e.target.value); setPendingPage(1); }}
+                  />
+                </div>
+              </div>
+              <div className={sharedStyles.tableControlsRight}>
+                <span className={sharedStyles.sectionCount}>{filteredPending.length} of {pending.length}</span>
+              </div>
+            </div>
+
+            {paginatedPending.length === 0 ? (
+              <div className={sharedStyles.emptyState}>
+                <div className={sharedStyles.emptyStateTitle}>{pendingSearch ? 'No matches found' : 'No pending bookings'}</div>
+                <div className={sharedStyles.emptyStateSub}>{pendingSearch ? 'Try a different search term' : 'Incoming Google Form orientation submissions will appear here'}</div>
+              </div>
+            ) : (
+              <div className={sharedStyles.tableScrollBody}>
+                <table className={sharedStyles.table}>
+                  <thead>
+                    <tr>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('created_at')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Submitted
+                          {getPendingSortIndicator('created_at') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('cub_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Cub
+                          {getPendingSortIndicator('cub_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('parent_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Parent
+                          {getPendingSortIndicator('parent_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('selected_session')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Preferred Day
+                          {getPendingSortIndicator('selected_session') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingSort('match_confidence')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Match Confidence
+                          {getPendingSortIndicator('match_confidence') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ width: 36, textAlign: 'right' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedPending.map(p => (
+                      <tr
+                        key={p.id}
+                        onClick={() => setSelectedPending(p)}
+                        style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                        title="Click row to review and confirm booking"
+                      >
+                        <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{p.cub_name}</div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>
+                            {p.matched_cub_id ? (
+                              `Matched: ${p.matched_cub_id}`
+                            ) : p.library_card ? (
+                              `ID: ${p.library_card}`
+                            ) : (
+                              <span style={{ color: 'var(--orange, #eab308)', fontWeight: 500 }}>Unlinked</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>
+                            {p.parent_name && p.parent_name !== p.parent_phone && !/^[\d\s+\-()]{6,}$/.test(p.parent_name)
+                              ? p.parent_name
+                              : '—'}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{p.parent_phone || '—'}</div>
+                        </td>
+                        <td style={{ fontSize: '0.82rem' }}>{p.selected_session || '—'}</td>
+                        <td><ConfidenceBadge confidence={p.match_confidence} /></td>
+                        <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>
+                          <ChevronRight size={15} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <Pagination page={pendingPage} total={filteredPending.length} pageSize={PAGE_SIZE} onChange={setPendingPage} />
+          </div>
+        </>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          TAB 5: UPCOMING SESSIONS
           Only cubs with booked sessions who have NOT completed orientation yet.
           Immediately they complete orientation, they leave this tab.
           Dynamic cascading filters: All -> Session Day / Rep
@@ -1261,191 +2115,6 @@ export default function OrientationClient({
             <Pagination page={upcomingPage} total={filteredUpcoming.length} pageSize={PAGE_SIZE} onChange={setUpcomingPage} />
           </div>
         </>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          TAB 4: MASTER JOURNEY (ACTIVE SUBSCRIBERS ONLY)
-          Dynamic cascading filters like Cubs Directory: All -> Rep / Session / Stage / Status Alert
-      ───────────────────────────────────────────────────────────── */}
-      {tab === 'master' && (
-        <>
-          <div className={sharedStyles.tableWrap}>
-            {/* Dynamic Cascading Filter Controls */}
-            <div className={sharedStyles.tableControls}>
-              <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap' }}>
-                {/* Search */}
-                <div style={{ position: 'relative', flex: 0 }}>
-                  <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-                  <input
-                    className={sharedStyles.searchInput}
-                    style={{ paddingLeft: '2rem' }}
-                    placeholder="Search cubs, parents, phone..."
-                    value={masterSearch}
-                    onChange={e => { setMasterSearch(e.target.value); setMasterPage(1); }}
-                  />
-                </div>
-
-                {/* Primary Filter Select */}
-                <select
-                  className={sharedStyles.filterSelect}
-                  value={masterPrimaryFilter}
-                  onChange={handleMasterPrimaryChange}
-                  style={{ width: '160px' }}
-                >
-                  <option value="">All</option>
-                  <option value="rep">Rep</option>
-                  <option value="session">Session Day</option>
-                  <option value="stage">Stage</option>
-                  <option value="alert">Status Alert</option>
-                </select>
-
-                {/* Secondary Cascading Filter Select */}
-                {masterPrimaryFilter === 'rep' && (
-                  <select
-                    className={sharedStyles.filterSelect}
-                    value={masterSecondaryFilter}
-                    onChange={handleMasterSecondaryChange}
-                    style={{ width: '180px' }}
-                  >
-                    <option value="">All Reps</option>
-                    {dynamicReps.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                )}
-
-                {masterPrimaryFilter === 'session' && (
-                  <select
-                    className={sharedStyles.filterSelect}
-                    value={masterSecondaryFilter}
-                    onChange={handleMasterSecondaryChange}
-                    style={{ width: '180px' }}
-                  >
-                    <option value="">All Sessions</option>
-                    <option value="Tuesday">Tuesday</option>
-                    <option value="Sunday">Sunday</option>
-                    <option value="Not Booked">Not Booked</option>
-                  </select>
-                )}
-
-                {masterPrimaryFilter === 'stage' && (
-                  <select
-                    className={sharedStyles.filterSelect}
-                    value={masterSecondaryFilter}
-                    onChange={handleMasterSecondaryChange}
-                    style={{ width: '200px' }}
-                  >
-                    <option value="">All Stages</option>
-                    {availableStages.map(st => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
-                  </select>
-                )}
-
-                {masterPrimaryFilter === 'alert' && (
-                  <select
-                    className={sharedStyles.filterSelect}
-                    value={masterSecondaryFilter}
-                    onChange={handleMasterSecondaryChange}
-                    style={{ width: '220px' }}
-                  >
-                    <option value="">All Status Alerts</option>
-                    <option value="overdue_7d">Overdue (&gt;7d Incomplete)</option>
-                    <option value="at_risk_14d">At Risk (&gt;14d, 0 Points)</option>
-                    <option value="needs_rc">Attended, Needs RC</option>
-                    <option value="unbooked">Not Yet Booked</option>
-                  </select>
-                )}
-              </div>
-
-              <div className={sharedStyles.tableControlsRight}>
-                <span className={sharedStyles.sectionCount}>{filteredMaster.length} of {activeMaster.length}</span>
-              </div>
-            </div>
-
-            {paginatedMaster.length === 0 ? (
-              <div className={sharedStyles.emptyState}>
-                <div className={sharedStyles.emptyStateTitle}>
-                  {masterSearch || masterPrimaryFilter
-                    ? 'No matches found'
-                    : 'No active subscribers in journey'}
-                </div>
-                <div className={sharedStyles.emptyStateSub}>Try adjusting search or dynamic filter criteria</div>
-              </div>
-            ) : (
-              <div className={sharedStyles.tableScrollBody}>
-                <table className={sharedStyles.table}>
-                  <thead>
-                    <tr>
-                      <th>Cub</th>
-                      <th>Parent</th>
-                      <th>Onboarded</th>
-                      <th>Session</th>
-                      <th>Stage</th>
-                      <th>Next Stage</th>
-                      <th>Sub Status</th>
-                      <th>Rep</th>
-                      <th style={{ width: 32 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedMaster.map(m => (
-                      <tr
-                        key={m.id}
-                        onClick={() => setDrawerRecord(m)}
-                        style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
-                        title="Click row to open orientation journey drawer"
-                      >
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{m.cubs.cub_first_name} {m.cubs.cub_last_name}</div>
-                          <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>{m.cub_id}</div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{m.cubs.parent_first_name} {m.cubs.parent_last_name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{m.cubs.parent_phone || '—'}</div>
-                        </td>
-                        <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                          {m.cubs.date_onboarded ? formatDate(m.cubs.date_onboarded) : '—'}
-                        </td>
-                        <td style={{ fontSize: '0.82rem' }}>
-                          {m.session ? (
-                            <span style={{ fontWeight: 600, color: m.session === 'Tuesday' ? 'var(--blue)' : 'var(--orange)' }}>
-                              {m.session}
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-3)' }}>— Not Booked</span>
-                          )}
-                        </td>
-                        <td><StageBadge stage={m.stage} stageStatus={m.stage_status} /></td>
-                        <td style={{ fontSize: '0.82rem', color: 'var(--text-3)' }}>{m.next_stage || '—'}</td>
-                        <td>
-                          <span className={`${sharedStyles.badge} ${sharedStyles.badgeGreen}`}>Active</span>
-                        </td>
-                        <td style={{ fontSize: '0.82rem' }}>{m.cubs.relationship_owner}</td>
-                        <td style={{ textAlign: 'right', color: 'var(--text-3)' }}>
-                          <ChevronRight size={15} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <Pagination page={masterPage} total={filteredMaster.length} pageSize={PAGE_SIZE} onChange={setMasterPage} />
-          </div>
-        </>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────
-          TAB 5: STATS & SCORECARD
-      ───────────────────────────────────────────────────────────── */}
-      {tab === 'stats' && (
-        <ScorecardStatsPanel
-          initialMetrics={initialScorecardMetrics}
-          isAdmin={isAdmin}
-          allReps={allReps}
-          currentRep={currentRep}
-        />
       )}
     </div>
   );

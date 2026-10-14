@@ -329,7 +329,8 @@ export async function editInteraction(formData: z.infer<typeof EditInteractionSc
 //  3. Creates new action if follow-up interaction also needs one
 const FollowUpSchema = z.object({
   originalInteractionId: z.string().min(1),
-  newActionStatus: z.enum(['Completed', 'Cancelled', 'Pending', 'Overdue']),
+  actionId: z.number().optional(),
+  newActionStatus: z.enum(['Completed', 'Cancelled', 'Pending', 'Overdue', 'Not started', 'In Progress']),
   newDeadline: z.string().optional(),
   followUp: z.object({
     cub_id: z.string(),
@@ -356,8 +357,13 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
   const parsed = FollowUpSchema.safeParse(formData);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  const { originalInteractionId, newActionStatus, followUp } = parsed.data;
-  const isTerminal = ['Completed', 'Cancelled'].includes(newActionStatus);
+  let { originalInteractionId, actionId, newActionStatus, followUp } = parsed.data;
+
+  // Setting a new action automatically sets initial action to Completed so there aren't multiple active actions
+  if (followUp.action_required === 'Yes' && followUp.action?.trim()) {
+    newActionStatus = 'Completed';
+  }
+
   const now = new Date().toISOString();
 
   // 1. Log follow-up interaction
@@ -391,18 +397,21 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
     .update({ action_status: newActionStatus })
     .eq('id', originalInteractionId);
 
-  // 3. Delete or update the original linked action
-  if (isTerminal) {
-    await supabase.from('actions').delete().eq('interaction_id', originalInteractionId);
+  // 3. Update the original linked action in actions table
+  // (Update rather than delete so action history is preserved with its completed status)
+  const actionUpdatePayload: any = {
+    action_status: newActionStatus,
+    ...(parsed.data.newDeadline ? { action_deadline: parsed.data.newDeadline } : {}),
+  };
+
+  if (actionId) {
+    await supabase.from('actions').update(actionUpdatePayload).eq('id', actionId);
   } else {
-    await supabase.from('actions').update({
-      action_status: newActionStatus,
-      ...(parsed.data.newDeadline ? { action_deadline: parsed.data.newDeadline } : {}),
-    }).eq('interaction_id', originalInteractionId);
+    await supabase.from('actions').update(actionUpdatePayload).eq('interaction_id', originalInteractionId);
   }
 
   // 4. Create new action if follow-up also requires one
-  if (followUp.action_required === 'Yes' && followUp.action) {
+  if (followUp.action_required === 'Yes' && followUp.action?.trim()) {
     await supabase.from('actions').insert({
       interaction_id: newInt.id,
       date: now,
@@ -415,7 +424,7 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
       type: followUp.type,
       purpose: followUp.purpose,
       action_required: 'Yes',
-      action: followUp.action,
+      action: followUp.action.trim(),
       action_deadline: followUp.action_deadline || null,
       action_status: 'Pending',
       logged_by: user.id,
@@ -440,7 +449,7 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
 // ─── Update Action Status ──────────────────────────────────────
 const UpdateActionSchema = z.object({
   id: z.number(),
-  action_status: z.enum(['Pending', 'Overdue', 'Completed', 'Cancelled']),
+  action_status: z.enum(['Pending', 'Overdue', 'Completed', 'Cancelled', 'Not started', 'In Progress']),
   feedback: z.string().optional(),
 });
 
