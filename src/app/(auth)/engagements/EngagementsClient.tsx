@@ -6,7 +6,8 @@ import { format, parseISO, isValid } from 'date-fns';
 import {
   Search, CheckCircle2, MessageSquarePlus, Clock, AlertCircle,
   ChevronLeft, ChevronRight, X, Plus, Edit2, Trash2, RefreshCw,
-  ArrowUpDown
+  ArrowUpDown, CheckCircle, AlertTriangle, MessageSquare, Calendar,
+  ExternalLink
 } from 'lucide-react';
 import type { Action, Interaction, Profile } from '@/lib/types';
 import {
@@ -98,8 +99,11 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
       : null
   );
 
+  const isRep = profile.role !== 'admin' && !!(profile.sheet_rep_name || profile.full_name);
+  const defaultRepName = profile.sheet_rep_name || profile.full_name || '';
+
   const [form, setForm] = useState({
-    handled_by: initial?.handled_by ?? profile.full_name,
+    handled_by: initial?.handled_by ?? (isRep ? defaultRepName : ''),
     type: initial?.type ?? '',
     purpose: initial?.purpose ?? '',
     status: initial?.status ?? '',
@@ -195,10 +199,22 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
           <div className={styles.formRow}>
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Handled By *</label>
-              <select className={styles.formInput} value={form.handled_by} onChange={e => set('handled_by', e.target.value)} required>
-                <option value="">Select...</option>
-                {(dropdowns.handled_by ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-              </select>
+              {isRep ? (
+                <input 
+                  type="text" 
+                  className={styles.formInput} 
+                  value={form.handled_by || defaultRepName} 
+                  readOnly 
+                  disabled
+                  style={{ opacity: 0.85, cursor: 'not-allowed', background: 'var(--bg-card)', fontWeight: 600 }}
+                  title="Automatically assigned to your rep account"
+                />
+              ) : (
+                <select className={styles.formInput} value={form.handled_by} onChange={e => set('handled_by', e.target.value)} required>
+                  <option value="">Select Rep...</option>
+                  {(dropdowns.handled_by ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              )}
             </div>
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Type *</label>
@@ -296,8 +312,11 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState('');
   const [newStatus, setNewStatus] = useState<'Completed' | 'Cancelled' | 'Pending'>('Completed');
+  const isRep = profile.role !== 'admin' && !!(profile.sheet_rep_name || profile.full_name);
+  const defaultRepName = profile.sheet_rep_name || profile.full_name || '';
+
   const [form, setForm] = useState({
-    handled_by: profile.full_name,
+    handled_by: isRep ? defaultRepName : '',
     type: action.type,
     purpose: action.purpose,
     status: '',
@@ -364,7 +383,12 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
           <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '20px' }}>
             <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-3)', fontWeight: 700, marginBottom: '4px' }}>Following up on action for</div>
             <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>{action.cub_first_name} {action.cub_last_name}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-3)', fontFamily: 'monospace', marginTop: '2px' }}>Cub ID: {action.cub_id}</div>
             <div style={{ fontSize: '13px', color: 'var(--text-2)', marginTop: '4px' }}>{action.action}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }}>
+              Parent: {action.parent_first_name} {action.parent_last_name}
+              {action.parent_phone && <span style={{ marginLeft: '8px' }}>({action.parent_phone})</span>}
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -383,10 +407,27 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
             <div style={{ display: 'flex', gap: '12px' }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Handled By *</label>
-                <select required style={{ ...inputStyle, appearance: 'none' }} value={form.handled_by} onChange={e => set('handled_by', e.target.value)}>
-                  <option value="">Select...</option>
-                  {(dropdowns.handled_by ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
+                {isRep ? (
+                  <input
+                    type="text"
+                    value={form.handled_by || defaultRepName}
+                    readOnly
+                    disabled
+                    style={{
+                      ...inputStyle,
+                      opacity: 0.85,
+                      cursor: 'not-allowed',
+                      background: 'var(--bg-card)',
+                      fontWeight: 600,
+                    }}
+                    title="Automatically assigned to your rep account"
+                  />
+                ) : (
+                  <select required style={{ ...inputStyle, appearance: 'none' }} value={form.handled_by} onChange={e => set('handled_by', e.target.value)}>
+                    <option value="">Select Rep...</option>
+                    {(dropdowns.handled_by ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                )}
               </div>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Type *</label>
@@ -567,22 +608,28 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
             <table className={sharedStyles.table}>
               <thead>
                 <tr>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action_deadline')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Deadline
+                      {getSortIndicator('action_deadline') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
                   <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('cub_first_name')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       Cub
                       {getSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action')}>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('parent_first_name')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Action
-                      {getSortIndicator('action') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      Parent
+                      {getSortIndicator('parent_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action_deadline')}>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('handled_by')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Deadline
-                      {getSortIndicator('action_deadline') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      Handled By
+                      {getSortIndicator('handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
                   <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action_status')}>
@@ -591,50 +638,36 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
                       {getSortIndicator('action_status') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('handled_by')}>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('action')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Rep
-                      {getSortIndicator('handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                      Action
+                      {getSortIndicator('action') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  <th>Follow-Up</th>
                 </tr>
               </thead>
               <tbody>
                 {paginated.map(action => (
-                  <tr key={action.id}>
+                  <tr
+                    key={action.id}
+                    onClick={() => setFollowUpAction(action)}
+                    style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                    title="Click to log follow-up"
+                  >
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {fmtDate(action.action_deadline)}
+                    </td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{action.cub_first_name} {action.cub_last_name}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{action.parent_first_name} {action.parent_last_name}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', fontFamily: 'monospace' }}>{action.cub_id}</div>
                     </td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{action.parent_first_name} {action.parent_last_name}</div>
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{action.handled_by}</td>
+                    <td><ActionStatusBadge status={action.action_status} isOverdue={action.overdue_status === 'Yes'} /></td>
                     <td style={{ maxWidth: 220 }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={action.action}>{action.action}</div>
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(action.action_deadline)}</td>
-                    <td><ActionStatusBadge status={action.action_status} isOverdue={action.overdue_status === 'Yes'} /></td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{action.handled_by}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        {!['Completed', 'Cancelled'].includes(action.action_status) && (
-                          <>
-                            <button className={`${styles.actionBtn} ${styles.actionBtnComplete}`}
-                              onClick={() => {
-                                setCompleteActionId(action.id);
-                                setShowCompleteConfirm(true);
-                              }}
-                              disabled={isPending}
-                              title="Mark Done"
-                              style={{ opacity: isPending ? 0.7 : 1 }}
-                            >
-                              <CheckCircle2 size={13} /> Done
-                            </button>
-                            <button className={`${styles.actionBtn} ${styles.actionBtnFollow}`}
-                              onClick={() => setFollowUpAction(action)} title="Log Follow-Up">
-                              Follow-Up
-                            </button>
-                          </>
-                        )}
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -783,30 +816,47 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
                   </th>
                   <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('cub_first_name')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Cub
+                      Cub Name
                       {getSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('parent_first_name')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Parent Name
+                      {getSortIndicator('parent_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('handled_by')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Handled By
+                      {getSortIndicator('handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('type')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Type
+                      {getSortIndicator('type') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                    </div>
+                  </th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('status')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Status
+                      {getSortIndicator('status') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
                   <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('purpose')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Purpose / Type
+                      Purpose
                       {getSortIndicator('purpose') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
                   <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('feedback')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Feedback
+                      Notes
                       {getSortIndicator('feedback') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('handled_by')}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Rep
-                      {getSortIndicator('handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                    </div>
-                  </th>
-                  <th>Action?</th>
-                  <th style={{ width: 80 }}></th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -815,22 +865,23 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
                     <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{fmtDate(int.date, true)}</td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{int.cub_first_name} {int.cub_last_name}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{int.parent_first_name} {int.parent_last_name}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', fontFamily: 'monospace' }}>{int.cub_id}</div>
                     </td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{int.purpose}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{int.type}{int.status ? ` · ${int.status}` : ''}</div>
+                      <div style={{ fontWeight: 600 }}>{int.parent_first_name} {int.parent_last_name}</div>
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{int.handled_by}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{int.type}</td>
+                    <td>{int.status || '—'}</td>
+                    <td style={{ maxWidth: 200 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={int.purpose ?? ''}>
+                        {int.purpose || '—'}
+                      </div>
                     </td>
                     <td style={{ maxWidth: 200, fontSize: '0.82rem', color: 'var(--text-2)' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={int.feedback ?? ''}>
                         {int.feedback || '—'}
                       </div>
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{int.handled_by}</td>
-                    <td>
-                      {int.action_required === 'Yes'
-                        ? <span className={`${sharedStyles.badge} ${sharedStyles.badgeOrange}`}>{int.action_status || 'Pending'}</span>
-                        : <span className={`${sharedStyles.badge} ${sharedStyles.badgeGray}`}>No</span>}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>

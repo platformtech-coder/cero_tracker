@@ -10,8 +10,17 @@ import { getCubActivity } from '@/lib/actions/directory';
 import { toast } from 'sonner';
 import styles from '@/components/ui/dashboard.module.css';
 import { AlertModal } from '@/components/ui/ConfirmModal';
+import type { Profile } from '@/lib/types';
 
-export function LogInteractionDrawer() {
+interface LogInteractionDrawerProps {
+  profile?: Profile;
+}
+
+export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
+  const isAdmin = profile?.role === 'admin';
+  const defaultRepName = profile?.sheet_rep_name || profile?.full_name || '';
+  const canAutoFill = !isAdmin && !!defaultRepName;
+
   const { 
     isOpen, 
     selectedCubId, 
@@ -54,6 +63,9 @@ export function LogInteractionDrawer() {
   useEffect(() => {
     if (isOpen) {
       getDropdowns().then(res => setDropdowns(res));
+      if (canAutoFill) {
+        setHandledBy(defaultRepName);
+      }
       if (selectedCubId) {
         setCubId(selectedCubId);
         setCubFirstName(selectedCubFirstName);
@@ -65,7 +77,7 @@ export function LogInteractionDrawer() {
         resetForm();
       }
     }
-  }, [isOpen, selectedCubId]);
+  }, [isOpen, selectedCubId, canAutoFill, defaultRepName]);
 
   const resetForm = () => {
     setSearchQuery('');
@@ -74,7 +86,7 @@ export function LogInteractionDrawer() {
     setCubLastName('');
     setParentFirstName('');
     setParentLastName('');
-    setHandledBy('');
+    setHandledBy(canAutoFill ? defaultRepName : '');
     setType('');
     setPurpose('');
     setStatus('');
@@ -144,6 +156,12 @@ export function LogInteractionDrawer() {
       setShowAlert(true);
       return;
     }
+    const finalHandledBy = canAutoFill ? defaultRepName : handledBy;
+    if (!finalHandledBy) {
+      setAlertMessage('Please select who handled this interaction.');
+      setShowAlert(true);
+      return;
+    }
     setIsSubmitting(true);
     const payload = {
       cub_id: cubId,
@@ -151,7 +169,7 @@ export function LogInteractionDrawer() {
       cub_last_name: cubLastName,
       parent_first_name: parentFirstName,
       parent_last_name: parentLastName,
-      handled_by: handledBy,
+      handled_by: finalHandledBy,
       type,
       purpose,
       status,
@@ -295,10 +313,32 @@ export function LogInteractionDrawer() {
             {/* Handled By */}
             <div>
               <label style={labelStyle}>Handled By *</label>
-              <select required value={handledBy} onChange={e => setHandledBy(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
-                <option value="">Select...</option>
-                {dropdowns['handled_by']?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+              {canAutoFill ? (
+                <input
+                  type="text"
+                  value={defaultRepName}
+                  readOnly
+                  disabled
+                  style={{
+                    ...inputStyle,
+                    opacity: 0.85,
+                    cursor: 'not-allowed',
+                    background: 'var(--bg-card)',
+                    fontWeight: 600,
+                  }}
+                  title="Automatically assigned to your rep account"
+                />
+              ) : (
+                <select 
+                  required 
+                  value={handledBy} 
+                  onChange={e => setHandledBy(e.target.value)} 
+                  style={{ ...inputStyle, appearance: 'none' }}
+                >
+                  <option value="">Select Rep...</option>
+                  {dropdowns['handled_by']?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              )}
             </div>
 
             {/* Type + Purpose */}

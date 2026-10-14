@@ -108,6 +108,7 @@ export interface Action {
   date: string;
   parent_first_name: string;
   parent_last_name: string;
+  parent_phone?: string;
   cub_id: string;
   cub_first_name: string;
   cub_last_name: string;

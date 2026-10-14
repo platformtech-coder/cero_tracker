@@ -105,7 +105,7 @@ export function AppShell({
         </header>
         <main className={styles.content}>{children}</main>
       </div>
-      <LogInteractionDrawer />
+      <LogInteractionDrawer profile={profile} />
     </div>
   );
 }
