@@ -1,5 +1,6 @@
 'use server';
 
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { getProfile } from '@/lib/supabase/getProfile';
 import type { DashboardStats, Action, Cub, Family } from '@/lib/types';
@@ -256,8 +257,8 @@ export async function getDashboardFamilies(repFilter?: string): Promise<Family[]
   return (allData as Family[]) ?? [];
 }
 
-// ─── Get all rep names (dynamic from Directory) ─────────────────
-export async function getAllReps(): Promise<string[]> {
+// ─── Get all rep names (dynamic from Directory, cached per request) ──
+export const getAllReps = cache(async (): Promise<string[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('get_unique_reps');
   
@@ -267,10 +268,10 @@ export async function getAllReps(): Promise<string[]> {
     .map((d: any) => d.relationship_owner)
     .filter(Boolean)
     .sort((a: string, b: string) => a.localeCompare(b));
-}
+});
 
-// ─── Get Dropdowns ─────────────────────────────────────────────
-export async function getDropdowns() {
+// ─── Get Dropdowns (cached per request) ─────────────────────────
+export const getDropdowns = cache(async () => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('config_dropdowns')
@@ -293,4 +294,4 @@ export async function getDropdowns() {
   grouped['handled_by'] = await getAllReps();
 
   return grouped;
-}
+});

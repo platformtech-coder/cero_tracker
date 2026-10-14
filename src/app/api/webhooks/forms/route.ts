@@ -384,6 +384,13 @@ export async function POST(req: NextRequest) {
   });
 
   if (insertErr) {
+    // Postgres unique constraint violation (23505) means a concurrent request already
+    // inserted the same idempotency_key. Treat this as a successful duplicate acknowledgment
+    // rather than an error — prevents Google Apps Script from entering an infinite retry loop.
+    if ((insertErr as any).code === '23505') {
+      console.info(`[webhook/forms] duplicate idempotency_key skipped: ${payload.idempotency_key}`);
+      return NextResponse.json({ ok: true, skipped: true, reason: 'duplicate' });
+    }
     console.error('[webhook/forms] insert error:', insertErr);
     return NextResponse.json({ error: insertErr.message }, { status: 500 });
   }

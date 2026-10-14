@@ -7,7 +7,7 @@ import {
   Search, CheckCircle2, MessageSquarePlus, Clock, AlertCircle,
   ChevronLeft, ChevronRight, X, Plus, Edit2, Trash2, RefreshCw,
   ArrowUpDown, CheckCircle, AlertTriangle, MessageSquare, Calendar,
-  ExternalLink, Phone
+  ExternalLink, Phone, ListChecks, MessageCircle
 } from 'lucide-react';
 import type { Action, Interaction, Profile } from '@/lib/types';
 import {
@@ -124,9 +124,9 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
   const handleCubSearch = useCallback(async (q: string) => {
     setCubQuery(q);
     if (q.length < 2) { setCubResults([]); return; }
-    const res = await searchCubs(q, profile.role === 'admin');
+    const res = await searchCubs(q, true);
     setCubResults(res);
-  }, [profile.role]);
+  }, []);
 
   const handleSelectCub = (cub: CubSearchResult) => {
     setSelectedCub(cub);
@@ -192,8 +192,15 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
                 <div className={styles.cubDropdown}>
                   {cubResults.map(c => (
                     <div key={c.cubId} className={styles.cubDropdownItem} onClick={() => handleSelectCub(c)}>
-                      <div style={{ fontWeight: 600 }}>{c.cubFirstName} {c.cubLastName} <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>({c.cubId})</span></div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{c.parentFirstName} {c.parentLastName} · {c.parentPhone}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 600 }}>{c.cubFirstName} {c.cubLastName} <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>({c.cubId})</span></span>
+                        {c.repName && (
+                          <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: 4, background: c.isOwnContact ? 'var(--primary-dim)' : 'var(--bg-input)', color: c.isOwnContact ? 'var(--primary)' : 'var(--text-3)', fontWeight: 600 }}>
+                            Rep: {c.repName}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginTop: 2 }}>{c.parentFirstName} {c.parentLastName} {c.parentPhone ? `· ${c.parentPhone}` : ''}</div>
                     </div>
                   ))}
                 </div>
@@ -1146,12 +1153,24 @@ export default function EngagementsClient({ initialInteractions, initialActions,
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: 'actions' | 'interactions' = rawTab === 'interactions' ? 'interactions' : 'actions';
+  const [tab, setTabState] = useState<'actions' | 'interactions'>(() => {
+    return rawTab === 'interactions' ? 'interactions' : 'actions';
+  });
+
+  useEffect(() => {
+    if (rawTab === 'actions' || rawTab === 'interactions') {
+      setTabState(rawTab);
+    }
+  }, [rawTab]);
+
   const setTab = useCallback((t: 'actions' | 'interactions') => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', t);
-    router.replace(`/engagements?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+    setTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, []);
   const [actions, setActions] = useState(initialActions);
 
   useEffect(() => {
@@ -1164,10 +1183,10 @@ export default function EngagementsClient({ initialInteractions, initialActions,
     <div>
       <div className={styles.tabs}>
         <button className={`${styles.tabBtn} ${tab === 'actions' ? styles.tabBtnActive : ''}`} onClick={() => setTab('actions')}>
-          Actions {activeCount > 0 && <span className={styles.tabBadge}>{activeCount}</span>}
+          <ListChecks size={14} style={{ marginRight: 6 }} /> Actions {activeCount > 0 && <span className={styles.tabBadge}>{activeCount}</span>}
         </button>
         <button className={`${styles.tabBtn} ${tab === 'interactions' ? styles.tabBtnActive : ''}`} onClick={() => setTab('interactions')}>
-          Interactions Log
+          <MessageCircle size={14} style={{ marginRight: 6 }} /> Interactions Log
         </button>
       </div>
 

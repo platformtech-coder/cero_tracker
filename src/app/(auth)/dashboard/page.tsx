@@ -1,9 +1,8 @@
+import { connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getDashboardStats, getDashboardActions, getAllReps } from '@/lib/actions/dashboard';
 import { getOrientationScorecardMetrics } from '@/lib/actions/orientation';
-import { AppShell } from '@/components/layout/AppShell';
 import DashboardClient from './DashboardClient';
-import type { Profile } from '@/lib/types';
 
 interface PageProps {
   searchParams: Promise<{ rep?: string }>;
@@ -12,13 +11,14 @@ interface PageProps {
 export const instant = false;
 
 export default async function DashboardPage({ searchParams }: PageProps) {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('role')
     .eq('id', user.id)
     .single();
 
@@ -37,19 +37,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <AppShell
-      profile={profile as Profile}
-      pageTitle="Dashboard"
-      pendingCounts={{ rc: stats.rcPendingCount, orientation: stats.orientationPendingCount }}
-    >
-      <DashboardClient
-        stats={stats}
-        actions={actions}
-        scorecardMetrics={scorecardMetrics}
-        isAdmin={isAdmin}
-        allReps={allReps}
-        currentRep={repParam ?? 'All Reps'}
-      />
-    </AppShell>
+    <DashboardClient
+      stats={stats}
+      actions={actions}
+      scorecardMetrics={scorecardMetrics}
+      isAdmin={isAdmin}
+      allReps={allReps}
+      currentRep={repParam ?? 'All Reps'}
+    />
   );
 }

@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { getProfile } from '@/lib/supabase/getProfile';
 import { revalidatePath } from 'next/cache';
 import type { Orientation, PendingSignup, Cub } from '@/lib/types';
@@ -31,32 +32,41 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
   const size = 1000;
   let hasMore = true;
 
+  const innerJoin = repFilterValue ? '!inner' : '';
+  const selectQuery = `
+    *,
+    master_cubs${innerJoin}(
+      cub_first_name,
+      cub_last_name,
+      parent_first_name,
+      parent_last_name,
+      parent_phone,
+      parent_email,
+      date_onboarded,
+      cubs${innerJoin}(
+        relationship_owner,
+        segment,
+        sub_status,
+        date_onboarded,
+        cumulative_points,
+        last_reading_activity,
+        reading_circle_category
+      )
+    )
+  `;
+
   while (hasMore) {
-    const query = supabase
+    let query = supabase
       .from('orientation')
-      .select(`
-        *,
-        master_cubs(
-          cub_first_name,
-          cub_last_name,
-          parent_first_name,
-          parent_last_name,
-          parent_phone,
-          parent_email,
-          date_onboarded,
-          cubs(
-            relationship_owner,
-            segment,
-            sub_status,
-            date_onboarded,
-            cumulative_points,
-            last_reading_activity,
-            reading_circle_category
-          )
-        )
-      `)
+      .select(selectQuery)
       .order('created_at', { ascending: false })
       .range(from, from + size - 1);
+
+    // Push rep filter into SQL so we only fetch the relevant subset.
+    // PostgREST with !inner join filters parent rows at database level.
+    if (repFilterValue) {
+      query = (query as any).eq('master_cubs.cubs.relationship_owner', repFilterValue);
+    }
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -70,7 +80,7 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
     }
   }
 
-  let results = (allData ?? []).map((row: any) => ({
+  const results = (allData ?? []).map((row: any) => ({
     ...row,
     cubs: {
       relationship_owner: row.master_cubs?.cubs?.relationship_owner,
@@ -90,11 +100,7 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
     master_cubs: undefined,
   }));
 
-  // Optional rep filter — applied client-side to preserve full dataset in memory.
-  if (repFilterValue) {
-    results = results.filter(r => r.cubs.relationship_owner === repFilterValue);
-  }
-
+  // No in-memory filtering needed — SQL handles the rep scope above.
   return results;
 }
 
@@ -201,7 +207,8 @@ export async function processOrientationSignup(formData: z.infer<typeof ProcessS
   if (fetchErr || !pending) return { error: fetchErr?.message || 'Pending record not found' };
 
   if (parsed.data.status === 'Rejected') {
-    const { error: deleteErr } = await supabase
+    const adminDb = createAdminClient();
+    const { error: deleteErr } = await adminDb
       .from('pending_signups')
       .delete()
       .eq('id', parsed.data.id);

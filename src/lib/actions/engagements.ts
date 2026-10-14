@@ -99,54 +99,99 @@ export async function getAllActions(repFilter?: string): Promise<Action[]> {
 }
 
 // ─── Search Cubs for Log Interaction cub picker ───────────────
-// Mirrors DashboardData.gs searchContacts() logic
-export async function searchCubs(query: string, searchAll = false) {
+// Allows searching any cub across all reps, with multi-word name, ID, and phone support.
+// Uses a two-pass strategy: prefix matches ranked first, then broader contains-matches,
+// so e.g. "Ian" surfaces "Ian Kuwornu" before "Christian" / "Julian" / "Brian".
+export async function searchCubs(query: string, searchAll = true) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const q = query.trim().toLowerCase();
-  if (q.length < 2) return [];
+  const raw = query.trim();
+  if (raw.length < 2) return [];
 
   const profile = await getProfile(supabase, user.id);
-
-  const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const shouldFilter = !isAdmin && !searchAll;
 
-  const { data, error } = await supabase
-    .from('master_cubs')
-    .select(`
-      cub_id,
-      cub_first_name,
-      cub_last_name,
-      parent_first_name,
-      parent_last_name,
-      parent_phone,
-      cubs!cub_id ( relationship_owner )
-    `)
-    .or(
-      `cub_first_name.ilike.%${q}%,cub_last_name.ilike.%${q}%,parent_first_name.ilike.%${q}%,parent_last_name.ilike.%${q}%,parent_phone.ilike.%${q}%,cub_id.ilike.%${q}%`
-    )
-    .limit(15);
+  const words = raw.split(/\s+/).filter(Boolean);
 
-  if (error) return [];
+  const selectFields = `
+    cub_id,
+    cub_first_name,
+    cub_last_name,
+    parent_first_name,
+    parent_last_name,
+    parent_phone,
+    cubs ( relationship_owner )
+  `;
 
-  const results = (data ?? []).map((row: any) => ({
-    cubId: row.cub_id as string,
-    cubFirstName: row.cub_first_name as string,
-    cubLastName: row.cub_last_name as string,
-    parentFirstName: row.parent_first_name as string,
-    parentLastName: row.parent_last_name as string,
-    parentPhone: row.parent_phone as string,
-    repName: (row.cubs as any)?.relationship_owner ?? '',
-    isOwnContact: (row.cubs as any)?.relationship_owner === profile?.full_name,
-  }));
+  // ── Helper: run a PostgREST query and return data ──────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const runQuery = async (filterFn: (q: any) => any, limit: number) => {
+    const q = filterFn(supabase.from('master_cubs').select(selectFields));
+    const { data, error } = await q.limit(limit);
+    if (error) { console.error('[searchCubs error]:', error); return []; }
+    return data ?? [];
+  };
 
-  if (shouldFilter) {
-    return results.filter(r => r.repName === effectiveRepName);
+  // ── Build filter for ID search ─────────────────────────────────
+  if (/^C\d+/i.test(raw)) {
+    const data = await runQuery(q => (q as any).ilike('cub_id', `%${raw}%`), 20);
+    return mapResults(data, effectiveRepName, profile);
   }
-  return results;
+
+  // ── Two-pass for name / phone searches ──────────────────────────
+  // Pass 1: prefix match on cub_first_name or cub_last_name (highest relevance)
+  const prefixFilter = (q: any) => {
+    const prefixOrs = words
+      .map(w => `cub_first_name.ilike.${w}%,cub_last_name.ilike.${w}%,parent_first_name.ilike.${w}%,parent_last_name.ilike.${w}%`)
+      .join(',');
+    return q.or(prefixOrs);
+  };
+
+  // Pass 2: broader contains match (catches mid-name hits)
+  const containsFilter = (q: any) => {
+    words.forEach((w: string) => {
+      q = q.or(
+        `cub_first_name.ilike.%${w}%,cub_last_name.ilike.%${w}%,parent_first_name.ilike.%${w}%,parent_last_name.ilike.%${w}%,parent_phone.ilike.%${w}%,cub_id.ilike.%${w}%`
+      );
+    });
+    return q;
+  };
+
+  const [prefixData, containsData] = await Promise.all([
+    runQuery(prefixFilter, 15),
+    runQuery(containsFilter, 30),
+  ]);
+
+  // Merge: prefix results first, then contains-only hits (no duplicates)
+  const seenIds = new Set<string>(prefixData.map((r: any) => r.cub_id));
+  const extraData = containsData.filter((r: any) => !seenIds.has(r.cub_id));
+  const merged = [...prefixData, ...extraData].slice(0, 20);
+
+  return mapResults(merged, effectiveRepName, profile);
+}
+
+function mapResults(data: any[], effectiveRepName: string | undefined, profile: any) {
+  return data.map((row: any) => {
+    const cubRel = Array.isArray(row.cubs) ? row.cubs[0] : row.cubs;
+    const repName = cubRel?.relationship_owner ?? '';
+    const isOwnContact = Boolean(
+      (effectiveRepName && repName.toLowerCase() === effectiveRepName.toLowerCase()) ||
+      (profile?.full_name && repName.toLowerCase() === profile.full_name.toLowerCase())
+    );
+
+    return {
+      cubId: row.cub_id as string,
+      cubFirstName: (row.cub_first_name as string) || '',
+      cubLastName: (row.cub_last_name as string) || '',
+      parentFirstName: (row.parent_first_name as string) || '',
+      parentLastName: (row.parent_last_name as string) || '',
+      parentPhone: (row.parent_phone as string) || '',
+      repName,
+      isOwnContact,
+    };
+  });
 }
 
 export type CubSearchResult = Awaited<ReturnType<typeof searchCubs>>[number];
@@ -211,7 +256,7 @@ export async function submitInteraction(formData: InteractionFormData) {
       action_required: 'Yes',
       action: parsed.data.action,
       action_deadline: parsed.data.action_deadline || null,
-      action_status: 'Pending',
+      action_status: parsed.data.action_status || 'Pending',
       logged_by: user.id,
     });
     if (actionError) return { error: actionError.message };

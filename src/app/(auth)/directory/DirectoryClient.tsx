@@ -11,6 +11,14 @@ import tabStyles from '../engagements/engagements.module.css';
 import { useInteractionStore } from '@/lib/store';
 import { formatDate } from '@/lib/utils/date';
 import { useTableSort } from '@/hooks/useTableSort';
+import {
+  DirectoryCubFilter,
+  applyCubFilters,
+  emptyCubFilterState,
+  countCubFilters,
+  type CubFilterState,
+} from '@/components/ui/DirectoryCubFilter';
+import { Skeleton, SkeletonActivityTimeline } from '@/components/ui/Skeleton';
 
 const PAGE_SIZE = 25;
 
@@ -192,7 +200,9 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
               </div>
               
               {loadingActivity ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)' }}>Loading activity...</div>
+                <div style={{ padding: '8px 0' }}>
+                  <SkeletonActivityTimeline count={3} />
+                </div>
               ) : (
                 <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
                   {activityTab === 'interactions' && (
@@ -377,7 +387,16 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {loadingCubs ? (
-              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '12px 0' }}>Loading cubs...</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--bg-input)', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <Skeleton width="45%" height={14} borderRadius={4} />
+                  <Skeleton width="60%" height={11} borderRadius={3} />
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--bg-input)', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <Skeleton width="40%" height={14} borderRadius={4} />
+                  <Skeleton width="55%" height={11} borderRadius={3} />
+                </div>
+              </div>
             ) : familyCubs.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No cubs found for this parent contact.</div>
             ) : familyCubs.map((cub: any) => (
@@ -497,88 +516,47 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
 
   // Cubs state
   const [cubSearch, setCubSearch] = useState('');
-  const [primaryFilter, setPrimaryFilter] = useState('');
-  const [secondaryFilter, setSecondaryFilter] = useState('');
-  const [tertiaryFilter, setTertiaryFilter] = useState('');
   const [cubPage, setCubPage] = useState(1);
 
   // Families state
   const [famSearch, setFamSearch] = useState('');
   const [famPage, setFamPage] = useState(1);
 
-  const handlePrimaryFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setPrimaryFilter(e.target.value);
-    setSecondaryFilter('');
-    setTertiaryFilter('');
+  // ── Advanced filter state ──────────────────────────────────────────────────
+  const allSchools = useMemo(() => {
+    const s = new Set<string>();
+    initialCubs.forEach(c => { if (c.school_name) s.add(c.school_name); });
+    return Array.from(s).sort();
+  }, [initialCubs]);
+
+  const allSegments = useMemo(() => {
+    const s = new Set<string>();
+    initialCubs.forEach(c => { if (c.segment) s.add(c.segment); });
+    return Array.from(s).sort();
+  }, [initialCubs]);
+
+  const [cubFilters, setCubFilters] = useState<CubFilterState>(emptyCubFilterState);
+  const cubFiltersActive = countCubFilters(cubFilters);
+
+  const resetCubFilters = () => {
+    setCubFilters(emptyCubFilterState());
     setCubPage(1);
   };
 
-  const handleSecondaryFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSecondaryFilter(e.target.value);
-    setTertiaryFilter('');
-    setCubPage(1);
-  };
-
-  const secondaryOptions = useMemo(() => {
-    if (!primaryFilter) return [];
-    const uniqueValues = new Set<string>();
-    initialCubs.forEach(c => {
-      const val = c[primaryFilter as keyof typeof c];
-      if (val) uniqueValues.add(String(val));
-    });
-    return Array.from(uniqueValues).sort();
-  }, [primaryFilter, initialCubs]);
-
-  const filteredCubs = useMemo(() => {
+  // Text search filter
+  const searchFilteredCubs = useMemo(() => {
     const q = cubSearch.toLowerCase();
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    if (!q) return initialCubs;
+    return initialCubs.filter(c =>
+      `${c.cub_first_name} ${c.cub_last_name} ${c.cub_id} ${c.school_name ?? ''}`.toLowerCase().includes(q)
+    );
+  }, [initialCubs, cubSearch]);
 
-    const currentDay = today.getDay(); // 0 (Sun) to 6 (Sat)
-    
-    // This Week: Sunday to Saturday
-    const thisWeekStart = new Date(today);
-    thisWeekStart.setDate(today.getDate() - currentDay);
-    const thisWeekEnd = new Date(thisWeekStart);
-    thisWeekEnd.setDate(thisWeekStart.getDate() + 6);
-    thisWeekEnd.setHours(23, 59, 59, 999);
-    
-    // Next Week: Next Sunday to Next Saturday
-    const nextWeekStart = new Date(thisWeekEnd);
-    nextWeekStart.setDate(thisWeekEnd.getDate() + 1);
-    nextWeekStart.setHours(0, 0, 0, 0);
-    const nextWeekEnd = new Date(nextWeekStart);
-    nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
-    nextWeekEnd.setHours(23, 59, 59, 999);
-    
-    // This Month
-    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const thisMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
-
-    return initialCubs.filter(c => {
-      const matchesSearch = !q || `${c.cub_first_name} ${c.cub_last_name} ${c.cub_id} ${c.school_name ?? ''}`.toLowerCase().includes(q);
-      const matchesFilter = !primaryFilter || !secondaryFilter || String(c[primaryFilter as keyof typeof c]) === secondaryFilter;
-      
-      let matchesTertiary = true;
-      if (primaryFilter === 'sub_status' && secondaryFilter === 'almost expiring' && tertiaryFilter) {
-        const endDate = c.sub_end_date ? new Date(c.sub_end_date) : null;
-        if (!endDate) {
-          matchesTertiary = false;
-        } else {
-          if (tertiaryFilter === 'this_week') {
-            matchesTertiary = endDate >= thisWeekStart && endDate <= thisWeekEnd;
-          } else if (tertiaryFilter === 'next_week') {
-            matchesTertiary = endDate >= nextWeekStart && endDate <= nextWeekEnd;
-          } else if (tertiaryFilter === 'this_month') {
-            matchesTertiary = endDate >= thisMonthStart && endDate <= thisMonthEnd;
-          }
-        }
-      }
-      
-      return matchesSearch && matchesFilter && matchesTertiary;
-    });
-  }, [initialCubs, cubSearch, primaryFilter, secondaryFilter, tertiaryFilter]);
+  // Advanced multi-filter
+  const filteredCubs = useMemo(
+    () => applyCubFilters(searchFilteredCubs, cubFilters),
+    [searchFilteredCubs, cubFilters]
+  );
 
   const { sortedData: sortedCubs, handleSort: handleCubsSort, getSortIndicator: getCubsSortIndicator } = useTableSort(filteredCubs, {
     sortableKeys: ['last_engagement_activity', 'cub_first_name', 'grade', 'stream', 'segment', 'sub_status', 'sub_end_date', 'no_sub_days', 'orientation_stage', 'orientation_stage_status', 'orientation_next_stage', 'orientation_completion_date', 'flag', 'current_streak', 'streak_label', 'current_league', 'cumulative_points', 'cumulative_weekly_points', 'handled_by_last', 'purpose_last'],
@@ -610,36 +588,20 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
       {tab === 'cubs' && (
         <div className={sharedStyles.tableWrap}>
           <div className={sharedStyles.tableControls}>
-            <div className={sharedStyles.tableControlsLeft}>
-              <div style={{ position: 'relative', flex: 0 }}>
+            <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ position: 'relative', flex: '0 0 auto' }}>
                 <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
                 <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search by name, ID, school..."
                   value={cubSearch} onChange={e => { setCubSearch(e.target.value); setCubPage(1); }} />
               </div>
-              
-              <select className={sharedStyles.filterSelect} value={primaryFilter} onChange={handlePrimaryFilterChange} style={{ width: '160px' }}>
-                <option value="">All</option>
-                <option value="segment">Segment</option>
-                <option value="orientation_stage">Orientation Stage</option>
-                <option value="sub_status">Sub Status</option>
-                <option value="flag">Flag</option>
-              </select>
-              
-              {primaryFilter && (
-                <select className={sharedStyles.filterSelect} value={secondaryFilter} onChange={handleSecondaryFilterChange} style={{ width: '180px' }}>
-                  <option value="">All {primaryFilter.replace('_', ' ')}</option>
-                  {secondaryOptions.map(opt => <option key={opt} value={opt}>{opt.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</option>)}
-                </select>
-              )}
-              
-              {primaryFilter === 'sub_status' && secondaryFilter === 'almost expiring' && (
-                <select className={sharedStyles.filterSelect} value={tertiaryFilter} onChange={e => { setTertiaryFilter(e.target.value); setCubPage(1); }} style={{ width: '180px' }}>
-                  <option value="">Any Time</option>
-                  <option value="this_week">This Week</option>
-                  <option value="next_week">Next Week</option>
-                  <option value="this_month">This Month</option>
-                </select>
-              )}
+              <DirectoryCubFilter
+                allSchools={allSchools}
+                allSegments={allSegments}
+                value={cubFilters}
+                onChange={(next) => { setCubFilters(next); setCubPage(1); }}
+                onReset={resetCubFilters}
+                totalActive={cubFiltersActive}
+              />
             </div>
             <div className={sharedStyles.tableControlsRight}>
               <span className={sharedStyles.sectionCount}>{filteredCubs.length} of {initialCubs.length}</span>

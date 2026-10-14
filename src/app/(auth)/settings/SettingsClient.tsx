@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import {
   Loader2, PlusCircle, Save, Edit2, Trash2, X, User, Mail, Lock,
   Shield, ChevronLeft, ChevronRight, Plus, Wrench, ChevronDown, CheckCircle2,
+  Users, List, BookOpen, Calendar
 } from 'lucide-react';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import styles from '../engagements/engagements.module.css';
@@ -703,19 +704,19 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
           className={`${styles.tabBtn} ${tab === 'users' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('users')}
         >
-          User Management
+          <Users size={14} style={{ marginRight: 6 }} /> User Management
         </button>
         <button 
           className={`${styles.tabBtn} ${tab === 'config' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('config')}
         >
-          Interactions Dropdown
+          <List size={14} style={{ marginRight: 6 }} /> Interactions Dropdown
         </button>
         <button 
           className={`${styles.tabBtn} ${tab === 'sessions' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('sessions')}
         >
-          RC & Ori Sessions
+          <BookOpen size={14} style={{ marginRight: 4 }} /> <Calendar size={14} style={{ marginRight: 4 }} /> RC & Ori Sessions
         </button>
       </div>
 

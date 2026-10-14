@@ -242,8 +242,26 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                             onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-card-hover)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                           >
-                            <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-1)' }}>{r.cubFirstName} {r.cubLastName}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>Parent: {r.parentFirstName} {r.parentLastName} · {r.parentPhone}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-1)' }}>
+                                {r.cubFirstName} {r.cubLastName}
+                              </div>
+                              {r.repName && (
+                                <span style={{
+                                  fontSize: '11px',
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  background: r.isOwnContact ? 'var(--primary-dim)' : 'var(--bg-input)',
+                                  color: r.isOwnContact ? 'var(--primary)' : 'var(--text-3)',
+                                  fontWeight: 600,
+                                }}>
+                                  Rep: {r.repName}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-3)', marginTop: '2px' }}>
+                              ID: <span style={{ fontFamily: 'monospace' }}>{r.cubId}</span> · Parent: {r.parentFirstName} {r.parentLastName} {r.parentPhone ? `· ${r.parentPhone}` : ''}
+                            </div>
                           </div>
                         ))}
                       </>

@@ -1,7 +1,7 @@
+import { connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getInteractions, getAllActions } from '@/lib/actions/engagements';
+import { getInteractions, getAllActions as getActions } from '@/lib/actions/engagements';
 import { getDropdowns, getAllReps } from '@/lib/actions/dashboard';
-import { AppShell } from '@/components/layout/AppShell';
 import EngagementsClient from './EngagementsClient';
 import type { Profile } from '@/lib/types';
 
@@ -12,6 +12,7 @@ interface PageProps {
 export const instant = false;
 
 export default async function EngagementsPage({ searchParams }: PageProps) {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -28,39 +29,20 @@ export default async function EngagementsPage({ searchParams }: PageProps) {
 
   const [interactions, actions, dropdowns, allReps] = await Promise.all([
     getInteractions(repFilter),
-    getAllActions(repFilter),
+    getActions(repFilter),
     getDropdowns(),
     isAdmin ? getAllReps() : Promise.resolve([]),
   ]);
 
-  // Also get pending counts for sidebar
-  const { count: rcCount } = await supabase
-    .from('pending_signups')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Reading Circle Signup');
-    
-  const { count: oriCount } = await supabase
-    .from('pending_signups')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Orientation Signup');
-
   return (
-    <AppShell 
-      profile={profile as Profile} 
-      pageTitle="Engagements"
-      pendingCounts={{ rc: rcCount || 0, orientation: oriCount || 0 }}
-    >
-      <EngagementsClient 
-        initialInteractions={interactions} 
-        initialActions={actions} 
-        dropdowns={dropdowns} 
-        profile={profile as Profile}
-        isAdmin={isAdmin}
-        allReps={allReps}
-        currentRep={repParam ?? 'All Reps'}
-      />
-    </AppShell>
+    <EngagementsClient 
+      initialInteractions={interactions} 
+      initialActions={actions} 
+      dropdowns={dropdowns} 
+      profile={profile as Profile}
+      isAdmin={isAdmin}
+      allReps={allReps}
+      currentRep={repParam ?? 'All Reps'}
+    />
   );
 }

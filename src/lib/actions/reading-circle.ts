@@ -1,7 +1,8 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { revalidatePath } from 'next/cache';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { revalidatePath, unstable_cache } from 'next/cache';
 import type { ReadingCircle, PendingSignup, Cub } from '@/lib/types';
 import { z } from 'zod';
 import { computeRCCategory, sortRCSessions, isBareDaySession } from '@/lib/utils/rc';
@@ -13,80 +14,89 @@ import {
   type SessionConfig
 } from '@/lib/constants/forms';
 
-// ─── Get Available RC Sessions ─────────────────────────────────
+// ─── Get Available RC Sessions (Cached) ─────────────────────────
 // Combines admin settings (forms_rc_sessions_lower, forms_rc_sessions_upper)
 // with distinct sessions currently assigned to cubs in reading_circle.
-export async function getAvailableRCSessions(): Promise<string[]> {
-  const supabase = await createClient();
+// Cached for 5 minutes (300s) to eliminate repeated database round-trips.
+const getCachedRCSessions = unstable_cache(
+  async () => {
+    const supabase = createAdminClient();
 
-  // 1. Fetch sessions from app_config
-  const { data: configRows } = await supabase
-    .from('app_config')
-    .select('key, value')
-    .in('key', ['forms_rc_sessions_lower', 'forms_rc_sessions_upper', 'forms_rc_grade_mapping']);
+    // 1. Fetch sessions from app_config
+    const { data: configRows } = await supabase
+      .from('app_config')
+      .select('key, value')
+      .in('key', ['forms_rc_sessions_lower', 'forms_rc_sessions_upper', 'forms_rc_grade_mapping']);
 
-  const cfg: Record<string, string> = {};
-  (configRows ?? []).forEach((r: any) => { cfg[r.key] = r.value; });
+    const cfg: Record<string, string> = {};
+    (configRows ?? []).forEach((r: any) => { cfg[r.key] = r.value; });
 
-  const sessionsSet = new Set<string>();
+    const sessionsSet = new Set<string>();
 
-  const parseSessions = (key: string, fallback: SessionConfig[]): SessionConfig[] => {
-    try {
-      const arr = JSON.parse(cfg[key] || '');
-      if (Array.isArray(arr) && arr.length > 0) return arr;
-    } catch {}
-    return fallback;
-  };
+    const parseSessions = (key: string, fallback: SessionConfig[]): SessionConfig[] => {
+      try {
+        const arr = JSON.parse(cfg[key] || '');
+        if (Array.isArray(arr) && arr.length > 0) return arr;
+      } catch {}
+      return fallback;
+    };
 
-  const lower = parseSessions('forms_rc_sessions_lower', DEFAULT_RC_SESSIONS_LOWER);
-  const upper = parseSessions('forms_rc_sessions_upper', DEFAULT_RC_SESSIONS_UPPER);
+    const lower = parseSessions('forms_rc_sessions_lower', DEFAULT_RC_SESSIONS_LOWER);
+    const upper = parseSessions('forms_rc_sessions_upper', DEFAULT_RC_SESSIONS_UPPER);
 
-  lower.forEach(s => {
-    if (s.day && s.startTime && s.endTime) {
-      sessionsSet.add(`${s.day} ${s.startTime} – ${s.endTime}`.trim());
-    }
-  });
-
-  upper.forEach(s => {
-    if (s.day && s.startTime && s.endTime) {
-      sessionsSet.add(`${s.day} ${s.startTime} – ${s.endTime}`.trim());
-    }
-  });
-
-  // Check grade mapping for any custom session strings
-  if (cfg['forms_rc_grade_mapping']) {
-    try {
-      const mapping = JSON.parse(cfg['forms_rc_grade_mapping']);
-      if (Array.isArray(mapping)) {
-        mapping.forEach((m: any) => {
-          const val = m.session || m.sessionDay;
-          if (val && !isBareDaySession(val)) {
-            sessionsSet.add(val.trim());
-          }
-        });
+    lower.forEach(s => {
+      if (s.day && s.startTime && s.endTime) {
+        sessionsSet.add(`${s.day} ${s.startTime} – ${s.endTime}`.trim());
       }
-    } catch {}
-  }
+    });
 
-  // 2. Fetch distinct sessions currently assigned to cubs in reading_circle
-  const { data: cubRows } = await supabase
-    .from('reading_circle')
-    .select('selected_session')
-    .not('selected_session', 'is', null)
-    .neq('selected_session', '');
+    upper.forEach(s => {
+      if (s.day && s.startTime && s.endTime) {
+        sessionsSet.add(`${s.day} ${s.startTime} – ${s.endTime}`.trim());
+      }
+    });
 
-  (cubRows ?? []).forEach((r: any) => {
-    const s = (r.selected_session || '').trim();
-    if (s && !isBareDaySession(s)) {
-      sessionsSet.add(s);
+    // Check grade mapping for any custom session strings
+    if (cfg['forms_rc_grade_mapping']) {
+      try {
+        const mapping = JSON.parse(cfg['forms_rc_grade_mapping']);
+        if (Array.isArray(mapping)) {
+          mapping.forEach((m: any) => {
+            const val = m.session || m.sessionDay;
+            if (val && !isBareDaySession(val)) {
+              sessionsSet.add(val.trim());
+            }
+          });
+        }
+      } catch {}
     }
-  });
 
-  if (sessionsSet.size === 0) {
-    DEFAULT_RC_SESSION_OPTIONS.forEach(s => sessionsSet.add(s));
-  }
+    // 2. Fetch distinct sessions currently assigned to cubs in reading_circle
+    const { data: cubRows } = await supabase
+      .from('reading_circle')
+      .select('selected_session')
+      .not('selected_session', 'is', null)
+      .neq('selected_session', '');
 
-  return sortRCSessions(Array.from(sessionsSet));
+    (cubRows ?? []).forEach((r: any) => {
+      const s = (r.selected_session || '').trim();
+      if (s && !isBareDaySession(s)) {
+        sessionsSet.add(s);
+      }
+    });
+
+    if (sessionsSet.size === 0) {
+      DEFAULT_RC_SESSION_OPTIONS.forEach(s => sessionsSet.add(s));
+    }
+
+    return sortRCSessions(Array.from(sessionsSet));
+  },
+  ['rc-available-sessions'],
+  { revalidate: 300, tags: ['rc-sessions'] }
+);
+
+export async function getAvailableRCSessions(): Promise<string[]> {
+  return getCachedRCSessions();
 }
 
 
@@ -107,23 +117,31 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
   const size = 1000;
   let hasMore = true;
 
+  const innerJoin = repFilterValue ? '!inner' : '';
+  const selectQuery = `
+    *,
+    master_cubs${innerJoin}(
+      cub_first_name,
+      cub_last_name,
+      parent_first_name,
+      parent_last_name,
+      parent_phone,
+      parent_email,
+      cubs${innerJoin}(relationship_owner, segment)
+    )
+  `;
+
   while (hasMore) {
-    const query = supabase
+    let query = supabase
       .from('reading_circle')
-      .select(`
-        *,
-        master_cubs(
-          cub_first_name,
-          cub_last_name,
-          parent_first_name,
-          parent_last_name,
-          parent_phone,
-          parent_email,
-          cubs(relationship_owner, segment)
-        )
-      `)
+      .select(selectQuery)
       .order('created_at', { ascending: false })
       .range(from, from + size - 1);
+
+    // Push rep filter into SQL — avoids loading the entire roster into memory.
+    if (repFilterValue) {
+      query = (query as any).eq('master_cubs.cubs.relationship_owner', repFilterValue);
+    }
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -137,7 +155,7 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
     }
   }
 
-  let results = (allData ?? []).map((row: any) => ({
+  const results = (allData ?? []).map((row: any) => ({
     ...row,
     cubs: {
       relationship_owner: row.master_cubs?.cubs?.relationship_owner,
@@ -152,10 +170,7 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
     master_cubs: undefined,
   }));
 
-  if (repFilterValue) {
-    results = results.filter(r => r.cubs.relationship_owner === repFilterValue);
-  }
-
+  // No in-memory filter needed — SQL handles the rep scope above.
   return results;
 }
 
@@ -279,7 +294,8 @@ export async function processRCSignup(formData: z.infer<typeof ProcessSignupSche
   if (fetchErr || !pending) return { error: fetchErr?.message || 'Pending record not found' };
 
   if (parsed.data.status === 'Rejected') {
-    const { error: deleteErr } = await supabase
+    const adminDb = createAdminClient();
+    const { error: deleteErr } = await adminDb
       .from('pending_signups')
       .delete()
       .eq('id', parsed.data.id);

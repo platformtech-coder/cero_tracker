@@ -103,6 +103,7 @@ export function Sidebar({ profile, pendingCounts, customNavItems, activeCustomNa
                 <Link
                   key={href}
                   href={href}
+                  prefetch={true}
                   className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                 >
                   <Icon size={16} strokeWidth={2} />
@@ -121,6 +122,7 @@ export function Sidebar({ profile, pendingCounts, customNavItems, activeCustomNa
                     <Link
                       key={href}
                       href={href}
+                      prefetch={true}
                       className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                     >
                       <Icon size={16} strokeWidth={2} />

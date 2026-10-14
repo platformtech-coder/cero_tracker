@@ -1,7 +1,7 @@
+import { connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getOrientationMaster, getPendingOrientationSignups, getOrientationScorecardMetrics, getGenCommPendingRC } from '@/lib/actions/orientation';
 import { getAllReps } from '@/lib/actions/dashboard';
-import { AppShell } from '@/components/layout/AppShell';
 import OrientationClient from './OrientationClient';
 import type { Profile } from '@/lib/types';
 
@@ -12,6 +12,7 @@ interface PageProps {
 export const instant = false;
 
 export default async function OrientationPage({ searchParams }: PageProps) {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -24,7 +25,6 @@ export default async function OrientationPage({ searchParams }: PageProps) {
 
   const isAdmin = profile?.role === 'admin';
   const { rep: repParam } = await searchParams;
-  // All users can filter by rep; the server actions apply the filter only when set.
   const repFilter = repParam && repParam !== 'All Reps' ? repParam : undefined;
 
   const [master, pending, allReps, scorecardMetrics, pendingRC] = await Promise.all([
@@ -35,28 +35,16 @@ export default async function OrientationPage({ searchParams }: PageProps) {
     getGenCommPendingRC(repFilter),
   ]);
 
-  const { count: rcCount } = await supabase
-    .from('pending_signups')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Reading Circle Signup');
-
   return (
-    <AppShell 
-      profile={profile as Profile} 
-      pageTitle="Orientation"
-      pendingCounts={{ rc: rcCount || 0, orientation: pending.length }}
-    >
-      <OrientationClient 
-        initialMaster={master} 
-        initialPending={pending} 
-        initialScorecardMetrics={scorecardMetrics}
-        initialPendingRC={pendingRC}
-        profile={profile as Profile}
-        isAdmin={isAdmin}
-        allReps={allReps}
-        currentRep={repParam ?? 'All Reps'}
-      />
-    </AppShell>
+    <OrientationClient 
+      initialMaster={master} 
+      initialPending={pending} 
+      initialScorecardMetrics={scorecardMetrics}
+      initialPendingRC={pendingRC}
+      profile={profile as Profile}
+      isAdmin={isAdmin}
+      allReps={allReps}
+      currentRep={repParam ?? 'All Reps'}
+    />
   );
 }

@@ -19,6 +19,7 @@ import { formatDate, formatTime } from '@/lib/utils/date';
 import { computeRCCategory } from '@/lib/utils/rc';
 import { toast } from 'sonner';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 interface ProcessPendingDrawerProps {
   pending: PendingSignup;
@@ -163,7 +164,7 @@ export default function ProcessPendingDrawer({
           : await processRCSignup(payload);
 
         if (res.success) {
-          toast.info('Signup marked as Rejected');
+          toast.success('Signup rejected and permanently deleted');
           setShowRejectConfirm(false);
           onSuccess(pending.id, 'Rejected');
           onClose();
@@ -360,8 +361,13 @@ export default function ProcessPendingDrawer({
             </div>
 
             {loadingInitial ? (
-              <div style={{ padding: '1.25rem', textAlign: 'center', color: 'var(--text-3)', fontSize: '0.85rem' }}>
-                <RefreshCw size={16} className="spin" style={{ display: 'inline', marginRight: 6 }} /> Checking directory profile...
+              <div style={{ padding: '1rem', background: 'var(--bg-input)', borderRadius: 12, border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Skeleton width="40%" height={15} borderRadius={4} />
+                  <Skeleton width={80} height={20} borderRadius={10} />
+                </div>
+                <Skeleton width="65%" height={12} borderRadius={3} />
+                <Skeleton width="30%" height={11} borderRadius={3} />
               </div>
             ) : selectedCub && !showSearch ? (
               /* High-confidence Linked Card */
@@ -655,9 +661,9 @@ export default function ProcessPendingDrawer({
         isOpen={showRejectConfirm}
         onClose={() => setShowRejectConfirm(false)}
         onConfirm={handleRejectConfirm}
-        title="Reject Signup?"
-        message="Are you sure you want to reject this signup? This will mark it as Rejected."
-        confirmText="Reject"
+        title="Reject & Delete Signup?"
+        message="Are you sure you want to reject this signup? This will permanently delete this pending registration."
+        confirmText="Delete Signup"
         variant="danger"
         isLoading={isPendingAction}
       />

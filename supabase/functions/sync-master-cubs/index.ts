@@ -266,40 +266,27 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
       }
       processed += masterCubsChunk.length;
       
-      // Fetch existing cubs to preserve fields
-      const cubIds = masterCubsChunk.map((m: any) => m.cub_id);
-      const { data: existing } = await db.from('cubs')
-        .select('cub_id,date_onboarded,last_engagement_activity,handled_by_last,purpose_last,orientation_stage,orientation_stage_status,orientation_next_stage,orientation_completion_date,reading_circle_category,no_present,last_attendance_date,current_streak,longest_streak,streak_label,current_league,medallion_status,flag,cumulative_points,cumulative_weekly_points,last_reading_activity')
-        .in('cub_id', cubIds);
-      const exMap = new Map((existing ?? []).map((c: any) => [c.cub_id, c]));
-      
-      const cubsChunk = masterCubsChunk.map((m: any) => {
-        const ex: any = exMap.get(m.cub_id) ?? {};
-        return {
-          cub_id: m.cub_id, 
-          date_onboarded: m.date_onboarded ?? ex.date_onboarded ?? m.sub_start_date ?? null,
-          segment: m.segment, gender: m.gender, grade: m.grade, stream: m.stream,
-          school_name: m.school_name, sub_start_date: m.sub_start_date, sub_end_date: m.sub_end_date,
-          no_sub_days: computeNoSubDays(m.sub_start_date, m.sub_end_date),
-          sub_status: m.sub_status, relationship_owner: m.rep_name || ex.relationship_owner || 'Unassigned',
-          current_streak: ex.current_streak ?? 0, longest_streak: ex.longest_streak ?? 0,
-          streak_label: ex.streak_label ?? null, current_league: ex.current_league ?? null,
-          medallion_status: ex.medallion_status ?? null, flag: ex.flag ?? null,
-          cumulative_points: ex.cumulative_points ?? 0, cumulative_weekly_points: ex.cumulative_weekly_points ?? 0,
-          last_reading_activity: ex.last_reading_activity ?? null,
-          last_engagement_activity: ex.last_engagement_activity ?? null,
-          handled_by_last: ex.handled_by_last ?? null, purpose_last: ex.purpose_last ?? null,
-          reading_circle_category: ex.reading_circle_category ?? null,
-          no_present: ex.no_present ?? 0, last_attendance_date: ex.last_attendance_date ?? null,
-          orientation_stage: ex.orientation_stage ?? null, orientation_stage_status: ex.orientation_stage_status ?? null,
-          orientation_next_stage: ex.orientation_next_stage ?? null,
-          orientation_completion_date: ex.orientation_completion_date ?? null,
-        };
-      });
-      const { error: err2 } = await db.from('cubs').upsert(cubsChunk, { onConflict: 'cub_id' });
+      // Use targeted RPC that updates only sheet-owned columns.
+      // Coordinator-managed fields (orientation_stage, last_engagement_activity, etc.)
+      // are intentionally left untouched to prevent lost updates during sync.
+      const cubsRpcPayload = masterCubsChunk.map((m: any) => ({
+        cub_id: m.cub_id,
+        date_onboarded: m.date_onboarded ?? null,
+        segment: m.segment,
+        gender: m.gender,
+        grade: m.grade,
+        stream: m.stream,
+        school_name: m.school_name,
+        sub_start_date: m.sub_start_date,
+        sub_end_date: m.sub_end_date,
+        sub_status: m.sub_status,
+        no_sub_days: computeNoSubDays(m.sub_start_date, m.sub_end_date),
+        relationship_owner: m.rep_name || 'Unassigned',
+      }));
+      const { error: err2 } = await db.rpc('upsert_synced_cubs_directory', { cubs_data: cubsRpcPayload });
       if (err2) {
-        console.error('[sync-directory] cubs upsert error:', JSON.stringify(err2));
-        throw new Error(`cubs upsert failed: ${err2.message}`);
+        console.error('[sync-directory] cubs targeted upsert error:', JSON.stringify(err2));
+        throw new Error(`cubs targeted upsert failed: ${err2.message}`);
       }
     }
     
@@ -412,28 +399,28 @@ async function syncReadingData(db: any, token: string, sheetId: string, tab: str
     
     for (let i = 0; i < data.length; i += CHUNK) {
       const slice = data.slice(i, i + CHUNK);
-      const cubIds = slice.map((r: any[]) => safe(r, COL.cub_id)!);
-      
-      const { data: existing } = await db.from('cubs').select('*').in('cub_id', cubIds);
-      const exMap = new Map((existing ?? []).map((c: any) => [c.cub_id, c]));
 
+      // Build payload containing only reading enrichment columns — no coordinator fields.
       const chunk = slice.map((r: any[]) => {
-        const id = safe(r, COL.cub_id)!;
-        const ex = exMap.get(id);
-        if (!ex) return null;
+        const id = safe(r, COL.cub_id);
+        if (!id) return null;
         return {
-          ...ex,
-          current_streak: safeInt(r, COL.streak),
-          longest_streak: safeInt(r, COL.longest_streak), streak_label: safe(r, COL.streak_label),
-          current_league: safe(r, COL.league), medallion_status: safe(r, COL.medallion),
-          flag: safe(r, COL.flag), cumulative_points: safeInt(r, COL.points),
+          cub_id: id,
+          current_streak: safeInt(r, COL.streak) || null,
+          longest_streak: safeInt(r, COL.longest_streak) || null,
+          streak_label: safe(r, COL.streak_label),
+          current_league: safe(r, COL.league),
+          medallion_status: safe(r, COL.medallion),
+          flag: safe(r, COL.flag),
+          cumulative_points: safeInt(r, COL.points) || null,
         };
       }).filter(Boolean);
 
       if (chunk.length > 0) {
-        const { error } = await db.from('cubs').upsert(chunk, { onConflict: 'cub_id' });
+        // Targeted RPC: only updates reading enrichment columns, skips unknown cub_ids.
+        const { error } = await db.rpc('upsert_synced_cubs_reading', { cubs_data: chunk });
         if (error) {
-          throw new Error(`cubs upsert failed: ${error.message} - details: ${JSON.stringify(error)}`);
+          throw new Error(`cubs reading upsert failed: ${error.message}`);
         } else {
           processed += chunk.length;
         }
@@ -463,17 +450,13 @@ async function syncScoreCalendar(db: any, token: string, sheetId: string, tab: s
     
     for (let i = 0; i < data.length; i += CHUNK) {
       const slice = data.slice(i, i + CHUNK);
-      const cubIds = slice.map((r: any[]) => safe(r, idIdx)!);
-      
-      const { data: existing } = await db.from('cubs').select('*').in('cub_id', cubIds);
-      const exMap = new Map((existing ?? []).map((c: any) => [c.cub_id, c]));
 
+      // Build payload with only score columns — no coordinator fields.
       const chunk = slice.map((r: any[]) => {
-        const cubId = safe(r, idIdx)!;
-        const ex = exMap.get(cubId);
-        if (!ex) return null;
-        
-        // Calculate weekly points (sum of last 7 columns)
+        const cubId = safe(r, idIdx);
+        if (!cubId) return null;
+
+        // Calculate weekly points (sum of last 7 score columns)
         let weeklyPoints = 0;
         const maxCols = r.length;
         const weekStartIdx = Math.max(idIdx + 1, maxCols - 7);
@@ -482,27 +465,28 @@ async function syncScoreCalendar(db: any, token: string, sheetId: string, tab: s
           if (!isNaN(n) && n > 0) weeklyPoints += n;
         }
 
-        // Calculate last reading date (right-most column with score >= 1)
+        // Find last reading date (right-most column with score >= 1)
         let lastReadingDate = null;
         for (let j = maxCols - 1; j > idIdx; j--) {
           const n = parseFloat(r[j]);
           if (!isNaN(n) && n >= 1) {
-            lastReadingDate = safeDate(rows[0], j); // use the header string as date
+            lastReadingDate = safeDate(rows[0], j);
             break;
           }
         }
 
         return {
-          ...ex,
-          cumulative_weekly_points: weeklyPoints,
+          cub_id: cubId,
+          cumulative_weekly_points: weeklyPoints || null,
           last_reading_activity: lastReadingDate,
         };
       }).filter(Boolean);
 
       if (chunk.length > 0) {
-        const { error } = await db.from('cubs').upsert(chunk, { onConflict: 'cub_id' });
+        // Targeted RPC: only updates score columns, skips unknown cub_ids.
+        const { error } = await db.rpc('upsert_synced_cubs_scores', { cubs_data: chunk });
         if (error) {
-          throw new Error(`cubs upsert failed: ${error.message} - details: ${JSON.stringify(error)}`);
+          throw new Error(`cubs scores upsert failed: ${error.message}`);
         } else {
           processed += chunk.length;
         }

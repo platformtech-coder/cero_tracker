@@ -44,11 +44,17 @@ export async function getShiftActions(repFilter?: string): Promise<{ overdue: Ac
   const future: Action[] = [];
 
   for (const a of actions) {
-    if (a.overdue_status === 'Yes') {
+    const deadlineDate = a.action_deadline ? a.action_deadline.slice(0, 10) : null;
+    const isOverdue =
+      a.action_status === 'Overdue' ||
+      a.overdue_status === 'Yes' ||
+      (deadlineDate !== null && deadlineDate < todayStr);
+
+    if (isOverdue) {
       overdue.push(a);
-    } else if (a.action_deadline && a.action_deadline.startsWith(todayStr)) {
+    } else if (deadlineDate === todayStr) {
       today.push(a);
-    } else if (a.action_deadline) {
+    } else {
       future.push(a);
     }
   }

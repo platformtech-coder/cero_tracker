@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, updateTag } from 'next/cache';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
 import { getProfile } from '@/lib/supabase/getProfile';
@@ -144,6 +144,7 @@ export async function saveFormsConfig(config: FormsConfig) {
 
   revalidatePath('/system-admin');
   revalidatePath('/settings');
+  updateTag('rc-sessions');
   return { success: true };
 }
 

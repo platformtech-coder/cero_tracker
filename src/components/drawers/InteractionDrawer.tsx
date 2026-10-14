@@ -62,9 +62,9 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
   const handleCubSearch = useCallback(async (q: string) => {
     setCubQuery(q);
     if (q.length < 2) { setCubResults([]); return; }
-    const res = await searchCubs(q, profile.role === 'admin');
+    const res = await searchCubs(q, true);
     setCubResults(res);
-  }, [profile.role]);
+  }, []);
 
   const handleSelectCub = (cub: CubSearchResult) => {
     setSelectedCub(cub);
@@ -140,8 +140,15 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
                 <div className={styles.cubDropdown}>
                   {cubResults.map(c => (
                     <div key={c.cubId} className={styles.cubDropdownItem} onClick={() => handleSelectCub(c)}>
-                      <div style={{ fontWeight: 600 }}>{c.cubFirstName} {c.cubLastName} <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>({c.cubId})</span></div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{c.parentFirstName} {c.parentLastName} · {c.parentPhone}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 600 }}>{c.cubFirstName} {c.cubLastName} <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>({c.cubId})</span></span>
+                        {c.repName && (
+                          <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: 4, background: c.isOwnContact ? 'var(--primary-dim)' : 'var(--bg-input)', color: c.isOwnContact ? 'var(--primary)' : 'var(--text-3)', fontWeight: 600 }}>
+                            Rep: {c.repName}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginTop: 2 }}>{c.parentFirstName} {c.parentLastName} {c.parentPhone ? `· ${c.parentPhone}` : ''}</div>
                     </div>
                   ))}
                 </div>

@@ -2,7 +2,7 @@
 
 import { Sun, Moon, Plus, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 import type { Profile } from '@/lib/types';
 import styles from './AppShell.module.css';
@@ -11,6 +11,17 @@ import { LogInteractionDrawer } from '@/components/ui/LogInteractionDrawer';
 import { useInteractionStore } from '@/lib/store';
 import { RepFilterBar } from '@/components/ui/RepFilterBar';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+
+const ROUTE_TITLES: Record<string, string> = {
+  '/dashboard': 'Dashboard',
+  '/directory': 'Directory',
+  '/orientation': 'Orientation',
+  '/reading-circle': 'Reading Circle',
+  '/engagements': 'Engagements',
+  '/shift-actions': 'Shift Actions',
+  '/handover': 'Handover Notes',
+  '/settings': 'Settings',
+};
 
 interface AppShellProps {
   profile: Profile;
@@ -34,10 +45,13 @@ export function AppShell({
   customNavItems, activeCustomNavId, onCustomNavClick, customLogout, hideHeaderActions, onRefresh 
 }: AppShellProps) {
   const router = useRouter();
+  const pathname = usePathname();
   useRealtimeSync();
 
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const openInteractionDrawer = useInteractionStore(state => state.openDrawer);
+
+  const activeTitle = pageTitle || ROUTE_TITLES[pathname] || (pathname.slice(1).charAt(0).toUpperCase() + pathname.slice(2));
 
   // Use provided onRefresh or fall back to router.refresh()
   const handleRefresh = onRefresh ?? (() => router.refresh());
@@ -70,7 +84,7 @@ export function AppShell({
       <div className={styles.main}>
         <header className={styles.header}>
           <div className={styles.headerLeft}>
-            {pageTitle && <h1 className={styles.pageTitle}>{pageTitle}</h1>}
+            {activeTitle && <h1 className={styles.pageTitle}>{activeTitle}</h1>}
           </div>
           <div className={styles.headerRight} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {!hideHeaderActions && (
@@ -103,7 +117,11 @@ export function AppShell({
             </button>
           </div>
         </header>
-        <main className={styles.content}>{children}</main>
+        <main className={styles.content}>
+          <div key={pathname} className={styles.pageTransition}>
+            {children}
+          </div>
+        </main>
       </div>
       <LogInteractionDrawer profile={profile} />
     </div>

@@ -14,9 +14,33 @@
  * ============================================================================
  */
 
-// Configuration
-var WEBHOOK_URL = 'https://yeah-qui-unix-creativity.trycloudflare.com/api/webhooks/forms';
-var WEBHOOK_SECRET = 'cero_tracker_secret_2026_xyz';
+// Configuration: Reads from Script Properties first, with safe fallback to production URL
+function getWebhookConfig() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    return {
+      url: props.getProperty('WEBHOOK_URL') || 'https://cero-tracker.vercel.app/api/webhooks/forms',
+      secret: props.getProperty('WEBHOOK_SECRET') || 'cero_tracker_secret_2026_xyz'
+    };
+  } catch (e) {
+    return {
+      url: 'https://cero-tracker.vercel.app/api/webhooks/forms',
+      secret: 'cero_tracker_secret_2026_xyz'
+    };
+  }
+}
+
+/**
+ * Setup Helper: Run this function once in the Apps Script editor to securely store
+ * your webhook URL and secret in Script Properties (File -> Project Properties -> Script Properties).
+ */
+function setupWebhookProperties() {
+  PropertiesService.getScriptProperties().setProperties({
+    WEBHOOK_URL: 'https://cero-tracker.vercel.app/api/webhooks/forms',
+    WEBHOOK_SECRET: 'cero_tracker_secret_2026_xyz'
+  });
+  Logger.log('Webhook properties saved to ScriptProperties successfully.');
+}
 
 /**
  * Main Trigger Handler
@@ -239,20 +263,21 @@ function processReadingCircleSubmission(response, formSource) {
  * Dispatch HTTP POST to the Next.js Webhook
  */
 function sendWebhookPayload(payload) {
+  var config = getWebhookConfig();
   Logger.log('Sending webhook for cub: ' + payload.cub_name + ' | Parent phone: ' + payload.parent_phone);
 
   var options = {
     method: 'post',
     contentType: 'application/json',
     headers: {
-      'x-webhook-secret': WEBHOOK_SECRET
+      'x-webhook-secret': config.secret
     },
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
   try {
-    var res = UrlFetchApp.fetch(WEBHOOK_URL, options);
+    var res = UrlFetchApp.fetch(config.url, options);
     var code = res.getResponseCode();
     var content = res.getContentText();
     Logger.log('Status: ' + code + ' | Body: ' + content);
@@ -269,7 +294,8 @@ function sendWebhookPayload(payload) {
  * and click "Run" right now to test connectivity immediately!
  */
 function testWebhookConnection() {
-  Logger.log('Testing connectivity to: ' + WEBHOOK_URL);
+  var config = getWebhookConfig();
+  Logger.log('Testing connectivity to: ' + config.url);
   var testPayload = {
     form_source: 'Orientation Signup',
     parent_name: 'Test Parent',

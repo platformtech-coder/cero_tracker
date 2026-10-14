@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Search, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
   BookOpen, Calendar, Save, RefreshCw, X, Link2, Clock, Sparkles, AlertCircle, Loader2, Users,
-  ArrowUpDown
+  ArrowUpDown, BarChart3, CalendarCheck
 } from 'lucide-react';
 import type { ReadingCircle, PendingSignup, Cub, Profile } from '@/lib/types';
 import { processRCSignup, changeCubRCSession, getReadingCircleRoster } from '@/lib/actions/reading-circle';
@@ -156,10 +156,10 @@ export default function ReadingCircleClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: 'pending' | 'roster' | 'pendingRC' =
-    rawTab === 'roster' ? 'roster'
-    : rawTab === 'pendingRC' ? 'pendingRC'
-    : 'pending';
+  const tab: 'stats' | 'pending' | 'roster' =
+    rawTab === 'pending' ? 'pending'
+    : rawTab === 'roster' ? 'roster'
+    : 'stats';
   const setTab = useCallback((t: typeof tab) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', t);
@@ -269,6 +269,28 @@ export default function ReadingCircleClient({
 
   const categories = useMemo(() => Array.from(new Set(roster.map(r => r.rc_category).filter(Boolean))).sort() as string[], [roster]);
 
+  // Attendance rate calculation for current week (Sunday - Saturday)
+  const attendanceRate = useMemo(() => {
+    if (roster.length === 0) return 0;
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - dayOfWeek);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // Count cubs with attendance this week
+    const attendedThisWeek = roster.filter(r => {
+      if (!r.last_attendance_date) return false;
+      const attDate = new Date(r.last_attendance_date);
+      return attDate >= weekStart && attDate <= weekEnd;
+    }).length;
+
+    return Math.round((attendedThisWeek / roster.length) * 100);
+  }, [roster]);
+
   const handleProcessSignup = (id: number, status: 'Confirmed' | 'Rejected') => {
     setProcessSignupId(id);
     setProcessSignupStatus(status);
@@ -287,6 +309,7 @@ export default function ReadingCircleClient({
       if (res.success) {
         toast.success(`Signup ${status.toLowerCase()}`);
         setPending(prev => prev.filter(p => p.id !== id));
+        router.refresh();
       } else {
         toast.error('Error: ' + res.error);
       }
@@ -295,6 +318,7 @@ export default function ReadingCircleClient({
 
   const handlePendingProcessed = (id: number, status: 'Confirmed' | 'Rejected', updatedFields?: any) => {
     setPending(prev => prev.filter(p => p.id !== id));
+    router.refresh();
     if (status === 'Confirmed') {
       router.refresh();
       startTransition(async () => {
@@ -354,17 +378,140 @@ export default function ReadingCircleClient({
         }}
       />
 
-      <div className={tabStyles.tabs}>
+<div className={tabStyles.tabs}>
+        <button className={`${tabStyles.tabBtn} ${tab === 'stats' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('stats')}>
+          <BarChart3 size={14} style={{ marginRight: 6 }} /> Stats {pendingRCList.length > 0 && <span className={tabStyles.tabBadge}>{pendingRCList.length}</span>}
+        </button>
         <button className={`${tabStyles.tabBtn} ${tab === 'pending' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('pending')}>
-          Booking Confirmation {pending.length > 0 && <span className={tabStyles.tabBadge}>{pending.length}</span>}
+          <CalendarCheck size={14} style={{ marginRight: 6 }} /> Booking Confirmation {pending.length > 0 && <span className={tabStyles.tabBadge}>{pending.length}</span>}
         </button>
         <button className={`${tabStyles.tabBtn} ${tab === 'roster' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('roster')}>
-          RC Roster <span className={tabStyles.tabBadge}>{roster.length}</span>
-        </button>
-        <button className={`${tabStyles.tabBtn} ${tab === 'pendingRC' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('pendingRC')}>
-          Pending RC Selection {pendingRCList.length > 0 && <span className={tabStyles.tabBadge}>{pendingRCList.length}</span>}
+          <BookOpen size={14} style={{ marginRight: 6 }} /> RC Roster <span className={tabStyles.tabBadge}>{roster.length}</span>
         </button>
       </div>
+
+            {tab === 'stats' && (
+        <>
+          {/* Stats Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {[
+              { label: 'Total Cubs with RC Session', value: roster.length, icon: Users, color: 'var(--primary)', bg: 'var(--primary-dim)' },
+              { label: 'Pending RC Selection', value: pendingRCList.length, icon: BookOpen, color: 'var(--orange)', bg: 'var(--orange-dim)' },
+              { label: 'Attendance Rate (Sun-Sat)', value: `${attendanceRate}%`, icon: Calendar, color: 'var(--green)', bg: 'var(--green-dim)' },
+            ].map(({ label, value, icon: Icon, color, bg }) => (
+              <div key={label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ background: bg, color, borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={15} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-1)', lineHeight: 1 }}>{value}</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginTop: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pending RC Selection Table */}
+          <div className={sharedStyles.tableWrap}>
+            <div className={sharedStyles.tableControls}>
+              <div className={sharedStyles.tableControlsLeft}>
+                <div style={{ position: 'relative', flex: 0 }}>
+                  <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+                  <input
+                    className={sharedStyles.searchInput}
+                    style={{ paddingLeft: '2rem' }}
+                    placeholder="Search cubs or parents..."
+                    value={pendingRCSearch}
+                    onChange={e => { setPendingRCSearch(e.target.value); setPendingRCPage(1); }}
+                  />
+                </div>
+              </div>
+              <div className={sharedStyles.tableControlsRight}>
+                <span className={sharedStyles.sectionCount}>
+                  {filteredPendingRC.length} of {pendingRCList.length}
+                </span>
+              </div>
+            </div>
+
+            {paginatedPendingRC.length === 0 ? (
+              <div className={sharedStyles.emptyState}>
+                <div className={sharedStyles.emptyStateTitle}>{pendingRCSearch ? 'No matches' : 'All Gen. Comm cubs have selected a Reading Circle'}</div>
+                <div className={sharedStyles.emptyStateSub}>{pendingRCSearch ? 'Try adjusting search' : 'Great job!'}</div>
+              </div>
+            ) : (
+              <>
+                <div className={sharedStyles.tableScrollBody}>
+                  <table className={sharedStyles.table}>
+                    <thead>
+                      <tr>
+                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('cub_first_name')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Cub
+                            {getPendingRCSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                          </div>
+                        </th>
+                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('parent_first_name')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Parent
+                            {getPendingRCSortIndicator('parent_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                          </div>
+                        </th>
+                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('date_onboarded')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Onboarded
+                            {getPendingRCSortIndicator('date_onboarded') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                          </div>
+                        </th>
+                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('orientation_stage')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Orientation Stage
+                            {getPendingRCSortIndicator('orientation_stage') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                          </div>
+                        </th>
+                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('relationship_owner')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Rep
+                            {getPendingRCSortIndicator('relationship_owner') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                          </div>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedPendingRC.map(d => (
+                        <tr
+                          key={d.cub_id}
+                          onClick={() => setSelectedCubForRC(d)}
+                          style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                          title="Click to assign Reading Circle session"
+                        >
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{d.cub_first_name} {d.cub_last_name}</div>
+                            <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>{d.cub_id}</div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{d.parent_first_name} {d.parent_last_name}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{d.parent_phone || '—'}</div>
+                          </td>
+                          <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                            {d.date_onboarded ? formatDate(d.date_onboarded) : '—'}
+                          </td>
+                          <td>
+                            <span className={`${sharedStyles.badge} ${d.orientation_completion_date ? sharedStyles.badgeGreen : sharedStyles.badgeBlue}`}>
+                              {d.orientation_stage || 'Invited'}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '0.82rem' }}>{d.relationship_owner}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination page={pendingRCPage} total={filteredPendingRC.length} pageSize={PAGE_SIZE} onChange={setPendingRCPage} />
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {tab === 'pending' && (
         <>
@@ -651,128 +798,7 @@ export default function ReadingCircleClient({
         </>
       )}
 
-      {tab === 'pendingRC' && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {[
-              { label: 'Pending RC Selection', value: pendingRCList.length, icon: BookOpen, color: 'var(--orange)', bg: 'var(--orange-dim)' },
-              { label: 'Orientation Done', value: pendingRCList.filter(d => d.orientation_completion_date).length, icon: CheckCircle2, color: 'var(--green)', bg: 'var(--green-dim)' },
-              { label: 'In Journey', value: pendingRCList.filter(d => !d.orientation_completion_date).length, icon: Clock, color: 'var(--blue)', bg: 'var(--blue-dim)' },
-            ].map(({ label, value, icon: Icon, color, bg }) => (
-              <div key={label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ background: bg, color, borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon size={15} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-1)', lineHeight: 1 }}>{value}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginTop: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className={sharedStyles.tableWrap}>
-            <div className={sharedStyles.tableControls}>
-              <div className={sharedStyles.tableControlsLeft}>
-                <div style={{ position: 'relative', flex: 0 }}>
-                  <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-                  <input
-                    className={sharedStyles.searchInput}
-                    style={{ paddingLeft: '2rem' }}
-                    placeholder="Search cubs or parents..."
-                    value={pendingRCSearch}
-                    onChange={e => { setPendingRCSearch(e.target.value); setPendingRCPage(1); }}
-                  />
-                </div>
-              </div>
-              <div className={sharedStyles.tableControlsRight}>
-                <span className={sharedStyles.sectionCount}>
-                  {filteredPendingRC.length} of {pendingRCList.length}
-                </span>
-              </div>
-            </div>
-
-            {paginatedPendingRC.length === 0 ? (
-              <div className={sharedStyles.emptyState}>
-                <div className={sharedStyles.emptyStateTitle}>{pendingRCSearch ? 'No matches' : 'All Gen. Comm cubs have selected a Reading Circle'}</div>
-                <div className={sharedStyles.emptyStateSub}>{pendingRCSearch ? 'Try adjusting search' : 'Great job!'}</div>
-              </div>
-            ) : (
-              <>
-                <div className={sharedStyles.tableScrollBody}>
-                  <table className={sharedStyles.table}>
-                    <thead>
-                      <tr>
-                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('cub_first_name')}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            Cub
-                            {getPendingRCSortIndicator('cub_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                          </div>
-                        </th>
-                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('parent_first_name')}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            Parent
-                            {getPendingRCSortIndicator('parent_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                          </div>
-                        </th>
-                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('date_onboarded')}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            Onboarded
-                            {getPendingRCSortIndicator('date_onboarded') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                          </div>
-                        </th>
-                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('orientation_stage')}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            Orientation Stage
-                            {getPendingRCSortIndicator('orientation_stage') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                          </div>
-                        </th>
-                        <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePendingRCSort('relationship_owner')}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            Rep
-                            {getPendingRCSortIndicator('relationship_owner') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
-                          </div>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedPendingRC.map(d => (
-                        <tr
-                          key={d.cub_id}
-                          onClick={() => setSelectedCubForRC(d)}
-                          style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
-                          title="Click to assign Reading Circle session"
-                        >
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{d.cub_first_name} {d.cub_last_name}</div>
-                            <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>{d.cub_id}</div>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{d.parent_first_name} {d.parent_last_name}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{d.parent_phone || '—'}</div>
-                          </td>
-                          <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                            {d.date_onboarded ? formatDate(d.date_onboarded) : '—'}
-                          </td>
-                          <td>
-                            <span className={`${sharedStyles.badge} ${d.orientation_completion_date ? sharedStyles.badgeGreen : sharedStyles.badgeBlue}`}>
-                              {d.orientation_stage || 'Invited'}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: '0.82rem' }}>{d.relationship_owner}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <Pagination page={pendingRCPage} total={filteredPendingRC.length} pageSize={PAGE_SIZE} onChange={setPendingRCPage} />
-              </>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Assign RC Drawer */}
+            {/* Assign RC Drawer */}
       {selectedCubForRC && (
         <AssignRCSelectionDrawer
           isOpen={Boolean(selectedCubForRC)}

@@ -65,12 +65,42 @@
   color: var(--primary);
 }
 
+@keyframes pageFadeIn {
+  from {
+    opacity: 0.85;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .content {
   flex: 1;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+}
+
+.pageTransition {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: pageTransitionFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pageTransitionFade {
+  0% {
+    opacity: 0.6;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Responsive: hide sidebar text on medium screens */

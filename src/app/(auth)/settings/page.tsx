@@ -1,7 +1,7 @@
+import { connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getProfiles, getSettingsConfig } from '@/lib/actions/settings';
 import { getAllReps } from '@/lib/actions/dashboard';
-import { AppShell } from '@/components/layout/AppShell';
 import SettingsClient from './SettingsClient';
 import type { Profile } from '@/lib/types';
 import { getFormsConfigForAdmin } from '@/lib/actions/forms';
@@ -10,6 +10,7 @@ import type { FormsConfig } from '@/lib/constants/forms';
 export const instant = false;
 
 export default async function SettingsPage() {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -34,31 +35,13 @@ export default async function SettingsPage() {
     ]);
   }
 
-  const { count: rcCount } = await supabase
-    .from('pending_signups')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Reading Circle Signup');
-
-  const { count: oriCount } = await supabase
-    .from('pending_signups')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Orientation Signup');
-
   return (
-    <AppShell
+    <SettingsClient
+      profiles={profiles}
+      config={config}
       profile={profile as Profile}
-      pageTitle="Settings"
-      pendingCounts={{ rc: rcCount || 0, orientation: oriCount || 0 }}
-    >
-      <SettingsClient
-        profiles={profiles}
-        config={config}
-        profile={profile as Profile}
-        repNames={repNames}
-        formsConfig={formsConfig}
-      />
-    </AppShell>
+      repNames={repNames}
+      formsConfig={formsConfig}
+    />
   );
 }

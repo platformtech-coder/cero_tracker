@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, Sun, AlertTriangle, Calendar } from 'lucide-react';
 import type { Action, Profile } from '@/lib/types';
 import { updateActionStatus } from '@/lib/actions/engagements';
 import sharedStyles from '@/components/ui/dashboard.module.css';
@@ -19,13 +19,24 @@ export default function ShiftClient({ initialActions, profile }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: 'overdue' | 'today' | 'future' = 
-    rawTab === 'overdue' ? 'overdue' : rawTab === 'future' ? 'future' : 'today';
+  const [tab, setTabState] = useState<'overdue' | 'today' | 'future'>(() => {
+    return rawTab === 'overdue' ? 'overdue' : rawTab === 'future' ? 'future' : 'today';
+  });
+
+  useEffect(() => {
+    if (rawTab && ['overdue', 'today', 'future'].includes(rawTab)) {
+      setTabState(rawTab as 'overdue' | 'today' | 'future');
+    }
+  }, [rawTab]);
+
   const setTab = useCallback((t: 'overdue' | 'today' | 'future') => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', t);
-    router.replace(`/shift-actions?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+    setTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, []);
   const [actions, setActions] = useState(initialActions);
 
   useEffect(() => {
@@ -106,19 +117,19 @@ export default function ShiftClient({ initialActions, profile }: Props) {
           className={`${styles.tabBtn} ${tab === 'today' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('today')}
         >
-          Today ({actions.today.length})
+          <Sun size={14} style={{ marginRight: 6 }} /> Today ({actions.today.length})
         </button>
         <button 
           className={`${styles.tabBtn} ${tab === 'overdue' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('overdue')}
         >
-          Overdue <span style={{ color: 'var(--red)', fontWeight: 'bold' }}>({actions.overdue.length})</span>
+          <AlertTriangle size={14} style={{ marginRight: 6 }} /> Overdue <span style={{ color: 'var(--red)', fontWeight: 'bold' }}>({actions.overdue.length})</span>
         </button>
         <button 
           className={`${styles.tabBtn} ${tab === 'future' ? styles.tabBtnActive : ''}`}
           onClick={() => setTab('future')}
         >
-          Upcoming ({actions.future.length})
+          <Calendar size={14} style={{ marginRight: 6 }} /> Upcoming ({actions.future.length})
         </button>
       </div>
 
