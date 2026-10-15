@@ -1,7 +1,9 @@
 'use server';
 
 import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { getProfile } from '@/lib/supabase/getProfile';
 import type { DashboardStats, Action, Cub, Family } from '@/lib/types';
 
@@ -257,41 +259,57 @@ export async function getDashboardFamilies(repFilter?: string): Promise<Family[]
   return (allData as Family[]) ?? [];
 }
 
-// ─── Get all rep names (dynamic from Directory, cached per request) ──
+// ─── Get all rep names (dynamic from Directory, cross-request cached) ──
+const getCachedUniqueReps = unstable_cache(
+  async (): Promise<string[]> => {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.rpc('get_unique_reps');
+    
+    if (error || !data) return [];
+    
+    return data
+      .map((d: any) => d.relationship_owner)
+      .filter(Boolean)
+      .sort((a: string, b: string) => a.localeCompare(b));
+  },
+  ['unique-reps'],
+  { revalidate: 300, tags: ['unique-reps'] }
+);
+
 export const getAllReps = cache(async (): Promise<string[]> => {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc('get_unique_reps');
-  
-  if (error || !data) return [];
-  
-  return data
-    .map((d: any) => d.relationship_owner)
-    .filter(Boolean)
-    .sort((a: string, b: string) => a.localeCompare(b));
+  return getCachedUniqueReps();
 });
 
-// ─── Get Dropdowns (cached per request) ─────────────────────────
-export const getDropdowns = cache(async () => {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('config_dropdowns')
-    .select('category, value, sort_order')
-    .eq('is_active', true)
-    .order('sort_order', { ascending: true });
+// ─── Get Dropdowns (cross-request cached) ─────────────────────────
+const getCachedDropdowns = unstable_cache(
+  async () => {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('config_dropdowns')
+      .select('category, value, sort_order')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
 
-  if (error) throw new Error(`Failed to load dropdown config: ${error.message}`);
+    if (error) throw new Error(`Failed to load dropdown config: ${error.message}`);
 
-  const grouped: Record<string, string[]> = {};
-  for (const item of (data ?? [])) {
-    if (!grouped[item.category]) grouped[item.category] = [];
-    // We will override handled_by entirely below
-    if (item.category !== 'handled_by') {
-      grouped[item.category].push(item.value);
+    const grouped: Record<string, string[]> = {};
+    for (const item of (data ?? [])) {
+      if (!grouped[item.category]) grouped[item.category] = [];
+      // We will override handled_by entirely below
+      if (item.category !== 'handled_by') {
+        grouped[item.category].push(item.value);
+      }
     }
-  }
 
-  // Automatically populate handled_by with unique Relationship Owners from Cubs
-  grouped['handled_by'] = await getAllReps();
+    // Automatically populate handled_by with unique Relationship Owners from Cubs
+    grouped['handled_by'] = await getCachedUniqueReps();
 
-  return grouped;
+    return grouped;
+  },
+  ['config-dropdowns'],
+  { revalidate: 3600, tags: ['config-dropdowns'] }
+);
+
+export const getDropdowns = cache(async () => {
+  return getCachedDropdowns();
 });

@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { getProfile } from '@/lib/supabase/getProfile';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import type { Profile } from '@/lib/types';
 import { z } from 'zod';
 
@@ -105,6 +105,7 @@ export async function saveConfigValue(formData: z.infer<typeof ConfigSchema>) {
   }
 
   revalidatePath('/settings');
+  revalidateTag('config-dropdowns', 'max');
   return { success: true };
 }
 
@@ -126,6 +127,7 @@ export async function deleteConfigValue(id: number) {
   if (error) return { error: error.message };
 
   revalidatePath('/settings');
+  revalidateTag('config-dropdowns', 'max');
   return { success: true };
 }
 

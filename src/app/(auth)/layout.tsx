@@ -21,25 +21,24 @@ async function AuthContent({ children }: { children: React.ReactNode }) {
 
   const profile = await getProfile(supabase, user.id);
 
-  const [rcCountRes, oriCountRes] = await Promise.all([
-    supabase
-      .from('pending_signups')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'Pending')
-      .eq('form_source', 'Reading Circle Signup'),
-    supabase
-      .from('pending_signups')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'Pending')
-      .eq('form_source', 'Orientation Signup'),
-  ]);
+  const { data: pendingRows } = await supabase
+    .from('pending_signups')
+    .select('form_source')
+    .eq('status', 'Pending');
+
+  let rcCount = 0;
+  let oriCount = 0;
+  for (const row of pendingRows ?? []) {
+    if (row.form_source === 'Reading Circle Signup') rcCount++;
+    else if (row.form_source === 'Orientation Signup') oriCount++;
+  }
 
   return (
     <AppShell
       profile={profile as Profile}
       pendingCounts={{
-        rc: rcCountRes.count || 0,
-        orientation: oriCountRes.count || 0,
+        rc: rcCount,
+        orientation: oriCount,
       }}
     >
       {children}
