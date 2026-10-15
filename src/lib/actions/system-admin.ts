@@ -67,6 +67,7 @@ export async function getSystemOverview() {
     appConfigRes,
     recentSyncRes,
     errorsRes,
+    archivedCubsRes,
   ] = await Promise.all([
     metricsPromise,
     supabase
@@ -100,6 +101,10 @@ export async function getSystemOverview() {
         .order('created_at', { ascending: false })
         .limit(50)
     ).catch(() => ({ data: null, error: null })),
+    supabase
+      .from('cubs')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_archived', true),
   ]);
 
   const queryLatencyMs = Math.max(1, Math.round(performance.now() - dbStart));
@@ -208,6 +213,7 @@ export async function getSystemOverview() {
       timestamp: a.timestamp,
     })),
     pendingSignups: pendingSignups ?? 0,
+    archivedCubs: archivedCubsRes?.count ?? 0,
   };
 }
 
@@ -707,4 +713,152 @@ export async function simulateSystemLog(level: 'error' | 'warning' | 'info' = 'w
   revalidatePath('/system-admin');
   return { success: true, log: data };
 }
+
+// ─── Archived Cubs Management ─────────────────────────────────
+export interface ArchivedCubItem {
+  id: number;
+  cub_id: string;
+  cub_first_name: string;
+  cub_last_name: string;
+  parent_first_name: string;
+  parent_last_name: string;
+  parent_phone: string;
+  parent_email: string;
+  parent_whatsapp: string;
+  school_name: string;
+  segment: string;
+  relationship_owner: string;
+  sub_status: string;
+  archived_at: string | null;
+  archived_reason: string | null;
+  date_onboarded: string | null;
+}
+
+export async function getArchivedCubs(filters?: {
+  search?: string;
+  segment?: string;
+}): Promise<ArchivedCubItem[]> {
+  await requireSuperAdmin();
+  const supabase = getServiceClient();
+
+  let query = supabase
+    .from('cubs')
+    .select(`
+      id,
+      cub_id,
+      school_name,
+      segment,
+      relationship_owner,
+      sub_status,
+      archived_at,
+      archived_reason,
+      date_onboarded,
+      master_cubs (
+        cub_first_name,
+        cub_last_name,
+        parent_first_name,
+        parent_last_name,
+        parent_phone,
+        parent_email,
+        parent_whatsapp
+      )
+    `)
+    .eq('is_archived', true)
+    .order('archived_at', { ascending: false, nullsFirst: false });
+
+  if (filters?.segment && filters.segment !== 'All') {
+    query = query.eq('segment', filters.segment);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  let list: ArchivedCubItem[] = (data ?? []).map((row: any) => ({
+    id: row.id,
+    cub_id: row.cub_id,
+    cub_first_name: row.master_cubs?.cub_first_name ?? '',
+    cub_last_name: row.master_cubs?.cub_last_name ?? '',
+    parent_first_name: row.master_cubs?.parent_first_name ?? '',
+    parent_last_name: row.master_cubs?.parent_last_name ?? '',
+    parent_phone: row.master_cubs?.parent_phone ?? '',
+    parent_email: row.master_cubs?.parent_email ?? '',
+    parent_whatsapp: row.master_cubs?.parent_whatsapp ?? '',
+    school_name: row.school_name ?? '',
+    segment: row.segment ?? '',
+    relationship_owner: row.relationship_owner ?? '',
+    sub_status: row.sub_status ?? '',
+    archived_at: row.archived_at,
+    archived_reason: row.archived_reason,
+    date_onboarded: row.date_onboarded,
+  }));
+
+  if (filters?.search && filters.search.trim()) {
+    const s = filters.search.trim().toLowerCase();
+    list = list.filter(c =>
+      c.cub_first_name.toLowerCase().includes(s) ||
+      c.cub_last_name.toLowerCase().includes(s) ||
+      c.cub_id.toLowerCase().includes(s) ||
+      c.parent_phone.toLowerCase().includes(s) ||
+      c.school_name.toLowerCase().includes(s) ||
+      c.relationship_owner.toLowerCase().includes(s)
+    );
+  }
+
+  return list;
+}
+
+export async function restoreArchivedCubAction(cubId: string) {
+  const session = await requireSuperAdmin();
+  const supabase = getServiceClient();
+
+  const { error } = await supabase.rpc('restore_archived_cub', { p_cub_id: cubId });
+  if (error) return { success: false, error: error.message };
+
+  try {
+    await supabase.from('audit_log').insert({
+      action: 'CUB_RESTORE',
+      details: `Restored archived cub: ${cubId}`,
+      status: 'SUCCESS',
+      user_id: session.email,
+      timestamp: new Date().toISOString(),
+    });
+  } catch { /* ignore */ }
+
+  revalidatePath('/system-admin');
+  revalidatePath('/directory');
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+export async function deleteArchivedCubPermanently(cubId: string) {
+  const session = await requireSuperAdmin();
+  const supabase = getServiceClient();
+
+  // Safely delete dependent records in dependency order
+  await supabase.from('actions').delete().eq('cub_id', cubId);
+  await supabase.from('interactions').delete().eq('cub_id', cubId);
+  await supabase.from('orientation').delete().eq('cub_id', cubId);
+  await supabase.from('reading_circle').delete().eq('cub_id', cubId);
+  await supabase.from('rc_attendance').delete().eq('cub_id', cubId);
+  await supabase.from('email_history').delete().eq('cub_id', cubId);
+  await supabase.from('cubs').delete().eq('cub_id', cubId);
+  const { error: delErr } = await supabase.from('master_cubs').delete().eq('cub_id', cubId);
+  if (delErr) return { success: false, error: delErr.message };
+
+  try {
+    await supabase.from('audit_log').insert({
+      action: 'CUB_PERMANENT_DELETE',
+      details: `Permanently deleted archived cub: ${cubId}`,
+      status: 'SUCCESS',
+      user_id: session.email,
+      timestamp: new Date().toISOString(),
+    });
+  } catch { /* ignore */ }
+
+  revalidatePath('/system-admin');
+  revalidatePath('/directory');
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
 

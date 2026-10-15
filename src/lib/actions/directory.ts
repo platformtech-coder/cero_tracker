@@ -43,6 +43,8 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
       .range(from, from + size - 1);
 
 
+    query = query.eq('is_archived', false);
+
     if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
 
     const { data, error } = await query;

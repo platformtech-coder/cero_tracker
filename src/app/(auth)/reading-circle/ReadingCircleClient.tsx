@@ -156,15 +156,24 @@ export default function ReadingCircleClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: 'stats' | 'pending' | 'roster' =
-    rawTab === 'pending' ? 'pending'
-    : rawTab === 'roster' ? 'roster'
-    : 'stats';
-  const setTab = useCallback((t: typeof tab) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', t);
-    router.replace(`/reading-circle?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+  const [tab, setTabState] = useState<'stats' | 'pending' | 'roster'>(() => {
+    return rawTab === 'pending' ? 'pending' : rawTab === 'roster' ? 'roster' : 'stats';
+  });
+
+  useEffect(() => {
+    if (rawTab && ['stats', 'pending', 'roster'].includes(rawTab)) {
+      setTabState(rawTab as 'stats' | 'pending' | 'roster');
+    }
+  }, [rawTab]);
+
+  const setTab = useCallback((t: 'stats' | 'pending' | 'roster') => {
+    setTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, []);
   const [pending, setPending] = useState(initialPending);
   const [roster, setRoster] = useState(initialRoster);
   const [pendingRCList, setPendingRCList] = useState<PendingRCRecord[]>(initialPendingRC);

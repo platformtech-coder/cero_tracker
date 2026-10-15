@@ -47,6 +47,7 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
     let cubsQuery = supabase
       .from('cubs')
       .select('sub_status, flag, sub_end_date')
+      .eq('is_archived', false)
       .range(from, from + size - 1);
 
     if (shouldFilterByRep) cubsQuery = cubsQuery.eq('relationship_owner', effectiveName!);

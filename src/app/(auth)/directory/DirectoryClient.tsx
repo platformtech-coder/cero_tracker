@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown } from 'lucide-react';
 import type { Cub, Family, Profile, Interaction, Action } from '@/lib/types';
-import { getCubActivity, getCubsForFamily } from '@/lib/actions/directory';
+import { getCubActivity, getCubsForFamily, getDirectoryCubs, getDirectoryFamilies } from '@/lib/actions/directory';
 
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
@@ -18,7 +18,7 @@ import {
   countCubFilters,
   type CubFilterState,
 } from '@/components/ui/DirectoryCubFilter';
-import { Skeleton, SkeletonActivityTimeline } from '@/components/ui/Skeleton';
+import { Skeleton, SkeletonActivityTimeline, SkeletonTable } from '@/components/ui/Skeleton';
 
 const PAGE_SIZE = 25;
 
@@ -491,8 +491,9 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
 }
 
 interface Props {
-  initialCubs: (Cub & { cub_first_name: string; cub_last_name: string })[];
-  initialFamilies: Family[];
+  initialCubs: (Cub & { cub_first_name: string; cub_last_name: string })[] | null;
+  initialFamilies: Family[] | null;
+  initialTab?: 'cubs' | 'families';
   profile: Profile;
   isAdmin?: boolean;
   allReps?: string[];
@@ -500,17 +501,81 @@ interface Props {
   dropdowns?: Record<string, string[]>;
 }
 
-export default function DirectoryClient({ initialCubs, initialFamilies, profile, isAdmin, allReps, currentRep, dropdowns }: Props) {
+export default function DirectoryClient({ initialCubs, initialFamilies, initialTab = 'cubs', profile, isAdmin, allReps, currentRep, dropdowns }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: 'cubs' | 'families' = rawTab === 'families' ? 'families' : 'cubs';
-  const setTab = useCallback((t: 'cubs' | 'families') => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', t);
-    router.replace(`/directory?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
   
+  const [tab, setTabState] = useState<'cubs' | 'families'>(() => {
+    return (rawTab === 'families' || initialTab === 'families') ? 'families' : 'cubs';
+  });
+
+  const [cubs, setCubs] = useState(initialCubs);
+  const [families, setFamilies] = useState(initialFamilies);
+  const [loadingTab, setLoadingTab] = useState<'cubs' | 'families' | null>(null);
+
+  // Sync state if initial props change (e.g. rep filter changed)
+  useEffect(() => {
+    if (initialCubs !== null) setCubs(initialCubs);
+  }, [initialCubs]);
+
+  useEffect(() => {
+    if (initialFamilies !== null) setFamilies(initialFamilies);
+  }, [initialFamilies]);
+
+  // Invalidate inactive tab cache when currentRep filter changes
+  const prevRepRef = useRef(currentRep);
+  useEffect(() => {
+    if (prevRepRef.current !== currentRep) {
+      prevRepRef.current = currentRep;
+      if (tab === 'cubs') setFamilies(null);
+      else setCubs(null);
+    }
+  }, [currentRep, tab]);
+
+  const repFilterParam = currentRep && currentRep !== 'All Reps' ? currentRep : undefined;
+
+  // Instant, non-blocking tab switch with immediate visual feedback
+  const setTab = useCallback((t: 'cubs' | 'families') => {
+    setTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+
+    if (t === 'families' && !families && loadingTab !== 'families') {
+      setLoadingTab('families');
+      getDirectoryFamilies(repFilterParam)
+        .then(res => setFamilies(res))
+        .catch(err => console.error('Failed to load families:', err))
+        .finally(() => setLoadingTab(null));
+    } else if (t === 'cubs' && !cubs && loadingTab !== 'cubs') {
+      setLoadingTab('cubs');
+      getDirectoryCubs(repFilterParam)
+        .then(res => setCubs(res))
+        .catch(err => console.error('Failed to load cubs:', err))
+        .finally(() => setLoadingTab(null));
+    }
+  }, [cubs, families, loadingTab, repFilterParam]);
+
+  // Background prefetch on idle for instant 0ms tab switches
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (tab === 'cubs' && !families && loadingTab !== 'families') {
+        getDirectoryFamilies(repFilterParam)
+          .then(res => setFamilies(prev => prev ?? res))
+          .catch(() => {});
+      } else if (tab === 'families' && !cubs && loadingTab !== 'cubs') {
+        getDirectoryCubs(repFilterParam)
+          .then(res => setCubs(prev => prev ?? res))
+          .catch(() => {});
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [tab, families, cubs, loadingTab, repFilterParam]);
+
   const [selectedCub, setSelectedCub] = useState<any | null>(null);
   const [selectedFamily, setSelectedFamily] = useState<any | null>(null);
 
@@ -525,15 +590,15 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
   // ── Advanced filter state ──────────────────────────────────────────────────
   const allSchools = useMemo(() => {
     const s = new Set<string>();
-    initialCubs.forEach(c => { if (c.school_name) s.add(c.school_name); });
+    (cubs ?? []).forEach(c => { if (c.school_name) s.add(c.school_name); });
     return Array.from(s).sort();
-  }, [initialCubs]);
+  }, [cubs]);
 
   const allSegments = useMemo(() => {
     const s = new Set<string>();
-    initialCubs.forEach(c => { if (c.segment) s.add(c.segment); });
+    (cubs ?? []).forEach(c => { if (c.segment) s.add(c.segment); });
     return Array.from(s).sort();
-  }, [initialCubs]);
+  }, [cubs]);
 
   const [cubFilters, setCubFilters] = useState<CubFilterState>(emptyCubFilterState);
   const cubFiltersActive = countCubFilters(cubFilters);
@@ -545,12 +610,13 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
 
   // Text search filter
   const searchFilteredCubs = useMemo(() => {
+    if (!cubs) return [];
     const q = cubSearch.toLowerCase();
-    if (!q) return initialCubs;
-    return initialCubs.filter(c =>
+    if (!q) return cubs;
+    return cubs.filter(c =>
       `${c.cub_first_name} ${c.cub_last_name} ${c.cub_id} ${c.school_name ?? ''}`.toLowerCase().includes(q)
     );
-  }, [initialCubs, cubSearch]);
+  }, [cubs, cubSearch]);
 
   // Advanced multi-filter
   const filteredCubs = useMemo(
@@ -566,11 +632,12 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
   const paginatedCubs = sortedCubs.slice((cubPage - 1) * PAGE_SIZE, cubPage * PAGE_SIZE);
 
   const filteredFamilies = useMemo(() => {
+    if (!families) return [];
     const q = famSearch.toLowerCase();
-    return initialFamilies.filter(f =>
+    return families.filter(f =>
       !q || `${f.parent_first_name} ${f.parent_last_name} ${f.parent_phone ?? ''} ${f.parent_email ?? ''}`.toLowerCase().includes(q)
     );
-  }, [initialFamilies, famSearch]);
+  }, [families, famSearch]);
 
   const paginatedFamilies = filteredFamilies.slice((famPage - 1) * PAGE_SIZE, famPage * PAGE_SIZE);
 
@@ -586,27 +653,47 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
       </div>
 
       {tab === 'cubs' && (
-        <div className={sharedStyles.tableWrap}>
-          <div className={sharedStyles.tableControls}>
-            <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ position: 'relative', flex: '0 0 auto' }}>
-                <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-                <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search by name, ID, school..."
-                  value={cubSearch} onChange={e => { setCubSearch(e.target.value); setCubPage(1); }} />
-              </div>
-              <DirectoryCubFilter
-                allSchools={allSchools}
-                allSegments={allSegments}
-                value={cubFilters}
-                onChange={(next) => { setCubFilters(next); setCubPage(1); }}
-                onReset={resetCubFilters}
-                totalActive={cubFiltersActive}
-              />
-            </div>
-            <div className={sharedStyles.tableControlsRight}>
-              <span className={sharedStyles.sectionCount}>{filteredCubs.length} of {initialCubs.length}</span>
-            </div>
+        (!cubs || loadingTab === 'cubs') ? (
+          <div className={sharedStyles.tableWrap}>
+            <SkeletonTable
+              rows={12}
+              columns={[
+                { header: 'Last Engagement', width: '13%' },
+                { header: 'Cub Name', width: '18%' },
+                { header: 'Grade', width: '7%' },
+                { header: 'Stream', width: '7%' },
+                { header: 'Segment', width: '10%' },
+                { header: 'Sub Status', width: '10%' },
+                { header: 'Stage', width: '12%' },
+                { header: 'Stage Status', width: '11%' },
+                { header: 'Flag', width: '12%' },
+              ]}
+              showSearch={true}
+              showFilters={true}
+            />
           </div>
+        ) : (
+          <div className={sharedStyles.tableWrap}>
+            <div className={sharedStyles.tableControls}>
+              <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: '0 0 auto' }}>
+                  <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+                  <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search by name, ID, school..."
+                    value={cubSearch} onChange={e => { setCubSearch(e.target.value); setCubPage(1); }} />
+                </div>
+                <DirectoryCubFilter
+                  allSchools={allSchools}
+                  allSegments={allSegments}
+                  value={cubFilters}
+                  onChange={(next) => { setCubFilters(next); setCubPage(1); }}
+                  onReset={resetCubFilters}
+                  totalActive={cubFiltersActive}
+                />
+              </div>
+              <div className={sharedStyles.tableControlsRight}>
+                <span className={sharedStyles.sectionCount}>{filteredCubs.length} of {(cubs ?? []).length}</span>
+              </div>
+            </div>
 
           {paginatedCubs.length === 0 ? (
             <div className={sharedStyles.emptyState}>
@@ -795,56 +882,74 @@ export default function DirectoryClient({ initialCubs, initialFamilies, profile,
           )}
           <Pagination page={cubPage} total={filteredCubs.length} pageSize={PAGE_SIZE} onChange={setCubPage} />
         </div>
+        )
       )}
 
       {tab === 'families' && (
-        <div className={sharedStyles.tableWrap}>
-          <div className={sharedStyles.tableControls}>
-            <div className={sharedStyles.tableControlsLeft}>
-              <div style={{ position: 'relative', flex: 0 }}>
-                <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-                <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search by name or contact..."
-                  value={famSearch} onChange={e => { setFamSearch(e.target.value); setFamPage(1); }} />
+        (!families || loadingTab === 'families') ? (
+          <div className={sharedStyles.tableWrap}>
+            <SkeletonTable
+              rows={12}
+              columns={[
+                { header: 'Parent Name', width: '28%' },
+                { header: 'No. Cubs', width: '14%', align: 'center' },
+                { header: 'Phone', width: '18%' },
+                { header: 'WhatsApp', width: '18%' },
+                { header: 'Email', width: '22%' },
+              ]}
+              showSearch={true}
+              showFilters={false}
+            />
+          </div>
+        ) : (
+          <div className={sharedStyles.tableWrap}>
+            <div className={sharedStyles.tableControls}>
+              <div className={sharedStyles.tableControlsLeft}>
+                <div style={{ position: 'relative', flex: 0 }}>
+                  <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+                  <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search by name or contact..."
+                    value={famSearch} onChange={e => { setFamSearch(e.target.value); setFamPage(1); }} />
+                </div>
+              </div>
+              <div className={sharedStyles.tableControlsRight}>
+                <span className={sharedStyles.sectionCount}>{filteredFamilies.length} of {(families ?? []).length}</span>
               </div>
             </div>
-            <div className={sharedStyles.tableControlsRight}>
-              <span className={sharedStyles.sectionCount}>{filteredFamilies.length} of {initialFamilies.length}</span>
-            </div>
-          </div>
 
-          {paginatedFamilies.length === 0 ? (
-            <div className={sharedStyles.emptyState}>
-              <div className={sharedStyles.emptyStateTitle}>No families found</div>
-              <div className={sharedStyles.emptyStateSub}>Try adjusting your search</div>
-            </div>
-          ) : (
-            <div style={{ flex: 1, overflow: 'auto' }}>
-              <table className={sharedStyles.table}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left' }}>Parent Name</th>
-                    <th>No. Cubs</th>
-                    <th>Phone</th>
-                    <th>WhatsApp</th>
-                    <th>Email</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedFamilies.map(fam => (
-                    <tr key={fam.id} onClick={() => setSelectedFamily(fam)} style={{ cursor: 'pointer' }} className={sharedStyles.tableRowHover}>
-                      <td style={{ fontWeight: 600, textAlign: 'left' }}>{fam.parent_first_name} {fam.parent_last_name}</td>
-                      <td><span className={`${sharedStyles.badge} ${sharedStyles.badgePrimary}`}>{fam.no_cubs}</span></td>
-                      <td style={{ fontSize: '0.82rem' }}>{fam.parent_phone || '—'}</td>
-                      <td style={{ fontSize: '0.82rem' }}>{fam.parent_whatsapp || '—'}</td>
-                      <td style={{ fontSize: '0.82rem', color: 'var(--text-2)' }}>{fam.parent_email || '—'}</td>
+            {paginatedFamilies.length === 0 ? (
+              <div className={sharedStyles.emptyState}>
+                <div className={sharedStyles.emptyStateTitle}>No families found</div>
+                <div className={sharedStyles.emptyStateSub}>Try adjusting your search</div>
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                <table className={sharedStyles.table}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Parent Name</th>
+                      <th>No. Cubs</th>
+                      <th>Phone</th>
+                      <th>WhatsApp</th>
+                      <th>Email</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <Pagination page={famPage} total={filteredFamilies.length} pageSize={PAGE_SIZE} onChange={setFamPage} />
-        </div>
+                  </thead>
+                  <tbody>
+                    {paginatedFamilies.map(fam => (
+                      <tr key={fam.id} onClick={() => setSelectedFamily(fam)} style={{ cursor: 'pointer' }} className={sharedStyles.tableRowHover}>
+                        <td style={{ fontWeight: 600, textAlign: 'left' }}>{fam.parent_first_name} {fam.parent_last_name}</td>
+                        <td><span className={`${sharedStyles.badge} ${sharedStyles.badgePrimary}`}>{fam.no_cubs}</span></td>
+                        <td style={{ fontSize: '0.82rem' }}>{fam.parent_phone || '—'}</td>
+                        <td style={{ fontSize: '0.82rem' }}>{fam.parent_whatsapp || '—'}</td>
+                        <td style={{ fontSize: '0.82rem', color: 'var(--text-2)' }}>{fam.parent_email || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <Pagination page={famPage} total={filteredFamilies.length} pageSize={PAGE_SIZE} onChange={setFamPage} />
+          </div>
+        )
       )}
 
       {selectedCub && <CubProfileDrawer cub={selectedCub} onClose={() => setSelectedCub(null)} />}

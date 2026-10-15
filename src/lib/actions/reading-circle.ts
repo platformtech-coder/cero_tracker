@@ -142,6 +142,7 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
     if (repFilterValue) {
       query = (query as any).eq('master_cubs.cubs.relationship_owner', repFilterValue);
     }
+    query = (query as any).eq('master_cubs.cubs.is_archived', false);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);

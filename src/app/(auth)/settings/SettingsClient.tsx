@@ -445,13 +445,24 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
   const searchParams = useSearchParams();
   const router = useRouter();
   const rawTab = searchParams.get('tab');
-  const tab: 'users' | 'config' | 'sessions' = 
-    rawTab === 'config' ? 'config' : rawTab === 'sessions' ? 'sessions' : 'users';
+  const [tab, setTabState] = useState<'users' | 'config' | 'sessions'>(() => {
+    return rawTab === 'config' ? 'config' : rawTab === 'sessions' ? 'sessions' : 'users';
+  });
+
+  useEffect(() => {
+    if (rawTab && ['users', 'config', 'sessions'].includes(rawTab)) {
+      setTabState(rawTab as 'users' | 'config' | 'sessions');
+    }
+  }, [rawTab]);
+
   const setTab = useCallback((t: 'users' | 'config' | 'sessions') => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', t);
-    router.replace(`/settings?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+    setTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, []);
 
   const [userList, setUserList] = useState(profiles);
   const [configList, setConfigList] = useState(config);

@@ -33,8 +33,10 @@ import {
   Check,
   X,
   ChevronRight,
+  Archive,
 } from "lucide-react";
 
+import ArchivedCubsTab from "./ArchivedCubsTab";
 import { toast } from "sonner";
 import {
   clearTable,
@@ -1010,25 +1012,44 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   };
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const tab: 'overview' | 'pipeline' | 'cleanup' = 
-    rawTab === 'pipeline' ? 'pipeline' : rawTab === 'cleanup' ? 'cleanup' : 'overview';
-  const setTab = useCallback((t: 'overview' | 'pipeline' | 'cleanup') => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', t);
-    router.replace(`/system-admin?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+  const [tab, setTabState] = useState<'overview' | 'pipeline' | 'cleanup' | 'archived'>(() => {
+    return rawTab === 'pipeline' ? 'pipeline' : rawTab === 'cleanup' ? 'cleanup' : rawTab === 'archived' ? 'archived' : 'overview';
+  });
+
+  useEffect(() => {
+    if (rawTab && ['overview', 'pipeline', 'cleanup', 'archived'].includes(rawTab)) {
+      setTabState(rawTab as 'overview' | 'pipeline' | 'cleanup' | 'archived');
+    }
+  }, [rawTab]);
+
+  const setTab = useCallback((t: 'overview' | 'pipeline' | 'cleanup' | 'archived') => {
+    setTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, []);
 
   const rawSubTab = searchParams.get('subtab');
-  const pipelineSubTab: 'sync' | 'config' =
-    rawSubTab === 'config' || rawSubTab === 'form_settings' ? 'config' : 'sync';
-  const setPipelineSubTab = useCallback(
-    (t: 'sync' | 'config') => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('subtab', t);
-      router.replace(`/system-admin?${params.toString()}`, { scroll: false });
-    },
-    [router, searchParams]
-  );
+  const [pipelineSubTab, setPipelineSubTabState] = useState<'sync' | 'config'>(() => {
+    return rawSubTab === 'config' || rawSubTab === 'form_settings' ? 'config' : 'sync';
+  });
+
+  useEffect(() => {
+    if (rawSubTab) {
+      setPipelineSubTabState(rawSubTab === 'config' || rawSubTab === 'form_settings' ? 'config' : 'sync');
+    }
+  }, [rawSubTab]);
+
+  const setPipelineSubTab = useCallback((t: 'sync' | 'config') => {
+    setPipelineSubTabState(t);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('subtab', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, []);
   const [overview, setOverview] = useState(init);
   const [logs, setLogs] = useState<AuditEntry[]>(init.auditLog);
   const [isPending, startTransition] = useTransition();
@@ -1427,6 +1448,7 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   const SIDEBAR_ITEMS = [
     { id: "overview", label: "System Overview", icon: BarChart3 },
     { id: "pipeline", label: "Pipeline & Sync", icon: Cloud },
+    { id: "archived", label: "Archived Cubs", icon: Archive },
     { id: "cleanup", label: "Data Cleanup", icon: Trash2 },
   ] as const;
 
@@ -3135,6 +3157,11 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
               </div>
             </div>
           </>
+        )}
+
+        {/* ══════════ ARCHIVED CUBS ══════════ */}
+        {tab === "archived" && (
+          <ArchivedCubsTab onRefreshOverview={refresh} />
         )}
       </div>
     </AppShell>

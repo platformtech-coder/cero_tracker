@@ -298,6 +298,17 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
       console.log(`[sync-directory] Auto-enrolled ${enrolledCount} new Gen. Comm cubs into Orientation`);
     }
 
+    // Soft-delete / Archive cubs removed from the sheet (e.g. moved school, removed from master)
+    const activeCubIds = validRows.map((r: string[]) => safe(r, COL.cub_id)).filter(Boolean);
+    if (activeCubIds.length >= 50) {
+      const { data: archiveRes, error: archiveErr } = await db.rpc('archive_missing_cubs', { active_cub_ids: activeCubIds });
+      if (archiveErr) {
+        console.warn('[sync-directory] archive_missing_cubs warning:', archiveErr.message);
+      } else {
+        console.log(`[sync-directory] Missing cubs reconciliation:`, JSON.stringify(archiveRes));
+      }
+    }
+
     console.log(`[sync-directory] Processed ${processed} rows. Building families...`);
     
     // Families sync (computed from validRows in memory)
