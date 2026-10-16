@@ -176,3 +176,115 @@ export async function getCubsForFamily(parentPhone: string | null, parentEmail: 
     master_cubs: undefined,
   })) as any[];
 }
+
+export interface CubSiblingItem {
+  cub_id: string;
+  cub_first_name: string;
+  cub_last_name: string;
+  grade?: string | null;
+  segment?: string | null;
+  school_name?: string | null;
+  sub_status?: string | null;
+  last_engagement_activity?: string | null;
+  handled_by_last?: string | null;
+  purpose_last?: string | null;
+}
+
+export interface CubSiblingsResponse {
+  siblings: CubSiblingItem[];
+  parent_phone: string | null;
+  parent_email: string | null;
+  parent_first_name: string;
+  parent_last_name: string;
+  last_engagement_date?: string | null;
+  last_handled_by?: string | null;
+  last_purpose?: string | null;
+}
+
+// ─── Get Siblings and Family Touchpoint for a Cub ──────────────
+export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsResponse> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { siblings: [], parent_phone: null, parent_email: null, parent_first_name: '', parent_last_name: '' };
+
+  const { data: currentMaster } = await supabase
+    .from('master_cubs')
+    .select('parent_phone, parent_email, parent_first_name, parent_last_name')
+    .eq('cub_id', cubId)
+    .single();
+
+  if (!currentMaster) return { siblings: [], parent_phone: null, parent_email: null, parent_first_name: '', parent_last_name: '' };
+
+  const phone = currentMaster.parent_phone?.trim() || null;
+  const email = currentMaster.parent_email?.toLowerCase().trim() || null;
+
+  if (!phone && !email) {
+    return {
+      siblings: [],
+      parent_phone: null,
+      parent_email: null,
+      parent_first_name: currentMaster.parent_first_name || '',
+      parent_last_name: currentMaster.parent_last_name || '',
+    };
+  }
+
+  let famQuery = supabase.from('families').select('*');
+  if (phone) famQuery = famQuery.eq('parent_phone', phone);
+  else famQuery = famQuery.eq('parent_email', email!);
+  const { data: familyRow } = await famQuery.maybeSingle();
+
+  let mcQuery = supabase.from('master_cubs').select('cub_id');
+  if (phone && email) {
+    mcQuery = mcQuery.or(`parent_phone.eq.${phone},parent_email.eq.${email}`);
+  } else if (phone) {
+    mcQuery = mcQuery.eq('parent_phone', phone);
+  } else {
+    mcQuery = mcQuery.eq('parent_email', email!);
+  }
+
+  const { data: masterRows } = await mcQuery;
+  const allIds = (masterRows ?? []).map((r: any) => r.cub_id).filter((id: string) => id !== cubId);
+
+  if (allIds.length === 0) {
+    return {
+      siblings: [],
+      parent_phone: phone,
+      parent_email: email,
+      parent_first_name: currentMaster.parent_first_name || '',
+      parent_last_name: currentMaster.parent_last_name || '',
+      last_engagement_date: familyRow?.last_engagement_date,
+      last_handled_by: familyRow?.last_handled_by,
+      last_purpose: familyRow?.last_purpose,
+    };
+  }
+
+  const { data: cubs } = await supabase
+    .from('cubs')
+    .select('cub_id, grade, segment, school_name, sub_status, last_engagement_activity, handled_by_last, purpose_last, master_cubs(cub_first_name, cub_last_name)')
+    .in('cub_id', allIds)
+    .eq('is_archived', false);
+
+  const siblings: CubSiblingItem[] = (cubs ?? []).map((c: any) => ({
+    cub_id: c.cub_id,
+    cub_first_name: c.master_cubs?.cub_first_name || '',
+    cub_last_name: c.master_cubs?.cub_last_name || '',
+    grade: c.grade,
+    segment: c.segment,
+    school_name: c.school_name,
+    sub_status: c.sub_status,
+    last_engagement_activity: c.last_engagement_activity,
+    handled_by_last: c.handled_by_last,
+    purpose_last: c.purpose_last,
+  }));
+
+  return {
+    siblings,
+    parent_phone: phone,
+    parent_email: email,
+    parent_first_name: currentMaster.parent_first_name || '',
+    parent_last_name: currentMaster.parent_last_name || '',
+    last_engagement_date: familyRow?.last_engagement_date,
+    last_handled_by: familyRow?.last_handled_by,
+    last_purpose: familyRow?.last_purpose,
+  };
+}

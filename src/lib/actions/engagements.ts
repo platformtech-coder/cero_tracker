@@ -272,9 +272,161 @@ export async function submitInteraction(formData: InteractionFormData) {
     })
     .eq('cub_id', parsed.data.cub_id);
 
+  // Update parent family record if phone or email is known
+  const { data: mc } = await supabase
+    .from('master_cubs')
+    .select('parent_phone, parent_email')
+    .eq('cub_id', parsed.data.cub_id)
+    .single();
+
+  if (mc?.parent_phone || mc?.parent_email) {
+    const phone = mc.parent_phone?.trim() || null;
+    const email = mc.parent_email?.toLowerCase().trim() || null;
+    let fQuery = supabase.from('families').update({
+      last_engagement_date: interaction.date,
+      last_handled_by: parsed.data.handled_by,
+      last_purpose: parsed.data.purpose,
+      updated_at: new Date().toISOString(),
+    });
+    if (phone) fQuery = fQuery.eq('parent_phone', phone);
+    else if (email) fQuery = fQuery.eq('parent_email', email);
+    await fQuery;
+  }
+
   revalidatePath('/engagements');
+  revalidatePath('/directory');
   revalidatePath('/dashboard');
   return { success: true, interaction };
+}
+
+// ─── Submit Multi-Cub Family Interaction ───────────────────────
+export interface MultiCubInteractionPayload {
+  cubs: Array<{
+    cub_id: string;
+    cub_first_name: string;
+    cub_last_name: string;
+  }>;
+  parent_first_name: string;
+  parent_last_name: string;
+  parent_phone?: string | null;
+  parent_email?: string | null;
+  handled_by: string;
+  type: string;
+  purpose: string;
+  status?: string | null;
+  feedback?: string | null;
+  action_required: 'Yes' | 'No';
+  action?: string | null;
+  action_cub_id?: string | null;
+  action_deadline?: string | null;
+  action_status?: string | null;
+  date?: string;
+}
+
+export async function submitFamilyInteraction(data: MultiCubInteractionPayload) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Unauthorized' };
+
+  if (!data.cubs || data.cubs.length === 0) {
+    return { error: 'At least one cub must be selected.' };
+  }
+
+  const interactionDate = data.date || new Date().toISOString();
+  const familyInteractionId = crypto.randomUUID();
+
+  // 1. Batch insert interaction records for all selected cubs
+  const interactionRows = data.cubs.map(c => ({
+    family_interaction_id: familyInteractionId,
+    cub_id: c.cub_id,
+    cub_first_name: c.cub_first_name,
+    cub_last_name: c.cub_last_name,
+    parent_first_name: data.parent_first_name,
+    parent_last_name: data.parent_last_name,
+    handled_by: data.handled_by,
+    type: data.type,
+    purpose: data.purpose,
+    status: data.status || null,
+    feedback: data.feedback || null,
+    action_required: data.action_required,
+    action: data.action || null,
+    action_deadline: data.action_deadline || null,
+    action_status: data.action_status || (data.action_required === 'Yes' ? 'Pending' : null),
+    logged_by: user.id,
+    date: interactionDate,
+  }));
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from('interactions')
+    .insert(interactionRows)
+    .select();
+
+  if (insertErr) return { error: insertErr.message };
+
+  // 2. Insert actions if action_required is Yes
+  if (data.action_required === 'Yes' && data.action) {
+    const targetCubs = data.action_cub_id && data.action_cub_id !== 'all'
+      ? data.cubs.filter(c => c.cub_id === data.action_cub_id)
+      : [data.cubs[0]];
+
+    const actionRows = targetCubs.map(c => {
+      const matchInt = (inserted || []).find((i: any) => i.cub_id === c.cub_id) || inserted?.[0];
+      return {
+        interaction_id: matchInt?.id || familyInteractionId,
+        date: interactionDate,
+        parent_first_name: data.parent_first_name,
+        parent_last_name: data.parent_last_name,
+        cub_id: c.cub_id,
+        cub_first_name: c.cub_first_name,
+        cub_last_name: c.cub_last_name,
+        handled_by: data.handled_by,
+        type: data.type,
+        purpose: data.purpose,
+        status: data.status || null,
+        feedback: data.feedback || null,
+        action_required: 'Yes' as const,
+        action: data.action!,
+        action_deadline: data.action_deadline || null,
+        action_status: (data.action_status || 'Pending') as any,
+        logged_by: user.id,
+      };
+    });
+
+    await supabase.from('actions').insert(actionRows);
+  }
+
+  // 3. Batch update last_engagement_activity on ALL selected cubs
+  const cubIds = data.cubs.map(c => c.cub_id);
+  await supabase
+    .from('cubs')
+    .update({
+      last_engagement_activity: interactionDate,
+      handled_by_last: data.handled_by,
+      purpose_last: data.purpose,
+    })
+    .in('cub_id', cubIds);
+
+  // 4. Update parent's family record
+  const phone = data.parent_phone?.trim() || null;
+  const email = data.parent_email?.toLowerCase().trim() || null;
+
+  if (phone || email) {
+    let fQuery = supabase.from('families').update({
+      last_engagement_date: interactionDate,
+      last_handled_by: data.handled_by,
+      last_purpose: data.purpose,
+      updated_at: new Date().toISOString(),
+    });
+    if (phone) fQuery = fQuery.eq('parent_phone', phone);
+    else fQuery = fQuery.eq('parent_email', email!);
+    await fQuery;
+  }
+
+  revalidatePath('/engagements');
+  revalidatePath('/directory');
+  revalidatePath('/dashboard');
+
+  return { success: true, count: data.cubs.length, familyInteractionId };
 }
 
 // ─── Edit Interaction ──────────────────────────────────────────

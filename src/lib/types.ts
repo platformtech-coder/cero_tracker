@@ -74,6 +74,12 @@ export interface Family {
   parent_whatsapp: string | null;
   no_cubs: number;
   relationship_owner: string;
+  schools?: string[];
+  segments?: string[];
+  sub_statuses?: string[];
+  last_engagement_date?: string | null;
+  last_handled_by?: string | null;
+  last_purpose?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +88,7 @@ export interface Family {
 export interface Interaction {
   id: string;
   interaction_id: string;
+  family_interaction_id?: string | null;
   date: string;
   parent_first_name: string;
   parent_last_name: string;

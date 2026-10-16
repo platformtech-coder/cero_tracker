@@ -321,6 +321,10 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
       const last = safe(r, COL.parent_last);
       const repRaw = safe(r, COL.rep) ?? '';
       const whatsapp = safe(r, COL.parent_whatsapp);
+      const school = safe(r, COL.school_name);
+      const seg = safe(r, COL.segment);
+      const subEnd = safeDate(r, COL.sub_end);
+      const subStatus = normalizeSubStatus(safe(r, COL.sub_status), subEnd);
       
       // Primary key: phone (normalized, no spaces/dashes), else email, else name
       const normalizedPhone = phone ? phone.replace(/[^0-9+]/g,'') : null;
@@ -329,14 +333,25 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
       if (!k || k === '_') continue; // Skip if no identifiable parent data
       
       if (!fMap.has(k)) {
+        const schools = new Set<string>();
+        if (school) schools.add(school);
+        const segments = new Set<string>();
+        if (seg) segments.add(seg);
+        const subStatuses = new Set<string>();
+        if (subStatus) subStatuses.add(subStatus);
+
         fMap.set(k, {
           parent_first_name: first ?? 'Unknown', parent_last_name: last ?? '',
           parent_phone: normalizedPhone, parent_email: email?.toLowerCase().trim() ?? null,
-          parent_whatsapp: whatsapp, relationship_owner: repRaw, count: 1
+          parent_whatsapp: whatsapp, relationship_owner: repRaw, count: 1,
+          schools, segments, sub_statuses: subStatuses,
         });
       } else {
         const existing = fMap.get(k);
         existing.count++;
+        if (school) existing.schools.add(school);
+        if (seg) existing.segments.add(seg);
+        if (subStatus) existing.sub_statuses.add(subStatus);
         // Update with richer data if available
         if (!existing.parent_phone && normalizedPhone) existing.parent_phone = normalizedPhone;
         if (!existing.parent_email && email) existing.parent_email = email.toLowerCase().trim();
@@ -349,6 +364,9 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
       parent_phone: f.parent_phone, parent_email: f.parent_email,
       parent_whatsapp: f.parent_whatsapp, relationship_owner: f.relationship_owner || 'Unassigned',
       no_cubs: f.count,
+      schools: Array.from(f.schools),
+      segments: Array.from(f.segments),
+      sub_statuses: Array.from(f.sub_statuses),
     }));
     
     // Upsert using the new COALESCE-based unique index columns

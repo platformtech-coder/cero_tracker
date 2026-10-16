@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Clock, Loader2 } from 'lucide-react';
+import { X, Clock, Loader2, Users, Calendar, AlertCircle } from 'lucide-react';
 import { useInteractionStore } from '@/lib/store';
 import { getDropdowns } from '@/lib/actions/dashboard';
-import { searchCubs, submitInteraction } from '@/lib/actions/engagements';
-import { getCubActivity } from '@/lib/actions/directory';
+import { searchCubs, submitInteraction, submitFamilyInteraction } from '@/lib/actions/engagements';
+import { getCubActivity, getSiblingsForCub, type CubSiblingsResponse } from '@/lib/actions/directory';
 import { toast } from 'sonner';
 import styles from '@/components/ui/dashboard.module.css';
 import { AlertModal } from '@/components/ui/ConfirmModal';
+import { formatDate } from '@/lib/utils/date';
 import type { Profile } from '@/lib/types';
 
 interface LogInteractionDrawerProps {
@@ -41,6 +42,11 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const [history, setHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+  // Sibling & family state
+  const [siblingsData, setSiblingsData] = useState<CubSiblingsResponse | null>(null);
+  const [selectedSiblingIds, setSelectedSiblingIds] = useState<Set<string>>(new Set());
+  const [isLoadingSiblings, setIsLoadingSiblings] = useState(false);
+
   // Form state
   const [cubId, setCubId] = useState('');
   const [cubFirstName, setCubFirstName] = useState('');
@@ -59,6 +65,19 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
 
+  const fetchSiblings = async (id: string) => {
+    setIsLoadingSiblings(true);
+    try {
+      const data = await getSiblingsForCub(id);
+      setSiblingsData(data);
+      setSelectedSiblingIds(new Set());
+    } catch {
+      setSiblingsData(null);
+    } finally {
+      setIsLoadingSiblings(false);
+    }
+  };
+
   // Initialize
   useEffect(() => {
     if (isOpen) {
@@ -73,6 +92,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
         setParentFirstName(selectedParentFirstName);
         setParentLastName(selectedParentLastName);
         fetchHistory(selectedCubId);
+        fetchSiblings(selectedCubId);
       } else {
         resetForm();
       }
@@ -95,6 +115,8 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     setActionDesc('');
     setActionDeadline('');
     setHistory([]);
+    setSiblingsData(null);
+    setSelectedSiblingIds(new Set());
   };
 
   const handleClose = () => {
@@ -147,6 +169,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     setShowResults(false);
     setSearchQuery('');
     fetchHistory(cub.cubId);
+    fetchSiblings(cub.cubId);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -163,6 +186,47 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
       return;
     }
     setIsSubmitting(true);
+
+    // If siblings are selected, use multi-cub family interaction action
+    if (selectedSiblingIds.size > 0 && siblingsData?.siblings) {
+      const selectedSiblings = siblingsData.siblings.filter(s => selectedSiblingIds.has(s.cub_id));
+      const multiCubs = [
+        { cub_id: cubId, cub_first_name: cubFirstName, cub_last_name: cubLastName },
+        ...selectedSiblings.map(s => ({
+          cub_id: s.cub_id,
+          cub_first_name: s.cub_first_name,
+          cub_last_name: s.cub_last_name,
+        })),
+      ];
+
+      const res = await submitFamilyInteraction({
+        cubs: multiCubs,
+        parent_first_name: parentFirstName,
+        parent_last_name: parentLastName,
+        parent_phone: siblingsData.parent_phone,
+        parent_email: siblingsData.parent_email,
+        handled_by: finalHandledBy,
+        type,
+        purpose,
+        status,
+        feedback,
+        action_required: actionRequired,
+        action: actionRequired === 'Yes' ? actionDesc : undefined,
+        action_deadline: actionRequired === 'Yes' ? actionDeadline : undefined,
+        action_status: actionRequired === 'Yes' ? 'Pending' : undefined,
+      });
+
+      setIsSubmitting(false);
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`Interaction logged for ${multiCubs.length} cubs successfully!`);
+        router.refresh();
+        handleClose();
+      }
+      return;
+    }
+
     const payload = {
       cub_id: cubId,
       cub_first_name: cubFirstName,
@@ -284,6 +348,112 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                 <input type="text" value={cubId ? `${parentFirstName} ${parentLastName}` : ''} disabled style={{ ...inputStyle, opacity: 0.7 }} placeholder="Select from search" />
               </div>
             </div>
+
+            {/* Siblings Panel */}
+            {cubId && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <Users size={14} color="var(--primary)" />
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                    Siblings / Same Parent
+                  </span>
+                  {isLoadingSiblings && <Loader2 size={13} color="var(--text-3)" style={{ animation: 'spin 1s linear infinite' }} />}
+                </div>
+
+                {isLoadingSiblings ? (
+                  /* Skeleton */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {[1, 2].map(i => (
+                      <div key={i} style={{ height: '40px', borderRadius: '8px', background: 'var(--bg-input)', opacity: 0.5, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    ))}
+                  </div>
+                ) : siblingsData && siblingsData.siblings.length > 0 ? (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
+                    {/* Header row */}
+                    <div style={{ padding: '8px 12px', background: 'var(--bg-input)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                        {siblingsData.siblings.length} sibling{siblingsData.siblings.length !== 1 ? 's' : ''} found — include in this log?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedSiblingIds.size === siblingsData.siblings.length) {
+                            setSelectedSiblingIds(new Set());
+                          } else {
+                            setSelectedSiblingIds(new Set(siblingsData.siblings.map(s => s.cub_id)));
+                          }
+                        }}
+                        style={{
+                          fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer',
+                          background: selectedSiblingIds.size === siblingsData.siblings.length ? 'var(--primary-dim)' : 'var(--bg-card)',
+                          color: selectedSiblingIds.size === siblingsData.siblings.length ? 'var(--primary)' : 'var(--text-2)',
+                          border: '1px solid var(--border)', transition: 'all 0.15s',
+                        }}
+                      >
+                        {selectedSiblingIds.size === siblingsData.siblings.length ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </div>
+
+                    {/* Sibling rows */}
+                    {siblingsData.siblings.map(sib => {
+                      const checked = selectedSiblingIds.has(sib.cub_id);
+                      return (
+                        <label
+                          key={sib.cub_id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px',
+                            cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                            background: checked ? 'var(--primary-dim)' : 'transparent',
+                            transition: 'background 0.15s',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedSiblingIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(sib.cub_id)) next.delete(sib.cub_id);
+                                else next.add(sib.cub_id);
+                                return next;
+                              });
+                            }}
+                            style={{ width: '15px', height: '15px', accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '13.5px', fontWeight: 600, color: checked ? 'var(--primary)' : 'var(--text-1)' }}>
+                              {sib.cub_first_name} {sib.cub_last_name}
+                            </div>
+                            {(sib.school_name || sib.segment) && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '1px' }}>
+                                {[sib.school_name, sib.segment].filter(Boolean).join(' · ')}
+                              </div>
+                            )}
+                          </div>
+                          {checked && (
+                            <span style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: 700, flexShrink: 0 }}>✓ Included</span>
+                          )}
+                        </label>
+                      );
+                    })}
+
+                    {/* Footer summary */}
+                    {selectedSiblingIds.size > 0 && (
+                      <div style={{ padding: '8px 14px', background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <AlertCircle size={13} color="var(--primary)" />
+                        <span style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600 }}>
+                          This interaction will be logged for {selectedSiblingIds.size + 1} cubs (primary + {selectedSiblingIds.size} sibling{selectedSiblingIds.size !== 1 ? 's' : ''}).
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : siblingsData && siblingsData.siblings.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-3)', padding: '8px 0' }}>
+                    No other cubs share the same parent contact.
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Recent Interaction History */}
             {cubId && (
@@ -438,7 +608,12 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
               }} 
               disabled={isSubmitting}
             >
-              {isSubmitting ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : 'Save Interaction'}
+              {isSubmitting
+                ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</>
+                : selectedSiblingIds.size > 0
+                  ? `Save for ${selectedSiblingIds.size + 1} Cubs`
+                  : 'Save Interaction'
+              }
             </button>
           </form>
         </div>
