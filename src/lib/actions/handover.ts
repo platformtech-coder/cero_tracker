@@ -21,12 +21,25 @@ export async function getHandoverNotes(repFilter?: string): Promise<(HandoverNot
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : profile?.full_name;
 
-  // Fetch all notes without join (logged_by → auth.users, not profiles)
-  const { data, error } = await supabase
+  let query = supabase
     .from('handover_notes')
     .select('*')
     .order('date', { ascending: false });
 
+  if (isFilteredRep) {
+    const { data: repProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .or(`full_name.eq.${effectiveName},sheet_rep_name.eq.${effectiveName}`);
+    const repIds = (repProfiles ?? []).map((p: any) => p.id);
+    if (repIds.length > 0) {
+      query = query.in('logged_by', repIds);
+    } else {
+      return [];
+    }
+  }
+
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
 
   const notes = data ?? [];
@@ -44,17 +57,10 @@ export async function getHandoverNotes(repFilter?: string): Promise<(HandoverNot
     });
   }
 
-  let results = notes.map((row: any) => ({
+  return notes.map((row: any) => ({
     ...row,
     profile: { full_name: profileMap[row.logged_by] ?? 'Unknown' },
   }));
-
-  // Apply rep filter only when admin explicitly selects a specific rep
-  if (isFilteredRep) {
-    results = results.filter(r => r.profile.full_name === effectiveName);
-  }
-
-  return results;
 }
 
 // ─── Submit Handover Note ──────────────────────────────────────

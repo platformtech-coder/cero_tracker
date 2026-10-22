@@ -171,7 +171,8 @@ async function markFailed(db: any, key: string, msg: string) {
 async function syncDirectory(db: any, token: string, sheetId: string, tab: string, debug = false) {
   await markRunning(db, 'directory');
   try {
-    const rows = await fetchSheet(token, sheetId, `${tab}!A:Z`);
+    // Fetch full sheet — no A:Z column limit so we get all columns (tab name only, no range).
+    const rows = await fetchSheet(token, sheetId, `'${tab}'`);
     if (rows.length < 2) { await markDone(db, 'directory', 0); return 0; }
     const h = rows[0].map((x: any) => String(x || '').trim().toLowerCase());
     // Log actual headers to help debug mismatches
@@ -398,7 +399,8 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
 async function syncReadingData(db: any, token: string, sheetId: string, tab: string, debug = false) {
   await markRunning(db, 'reading_data');
   try {
-    const rows = await fetchSheet(token, sheetId, `${tab}!A:Z`);
+    // Fetch full sheet — Cubs Registry has 30 cols; A:Z would cut Medallion Status (col 27+).
+    const rows = await fetchSheet(token, sheetId, `'${tab}'`);
     if (rows.length < 2) { await markDone(db, 'reading_data', 0); return 0; }
     const h = rows[0].map((x: any) => String(x || '').trim().toLowerCase());
     if (debug) {
@@ -413,7 +415,9 @@ async function syncReadingData(db: any, token: string, sheetId: string, tab: str
       streak: colIdxAny(h,'current streak','streak'),
       longest_streak: colIdxAny(h,'longest streak'), streak_label: colIdxAny(h,'streak label'),
       league: colIdxAny(h,'current league'), medallion: colIdxAny(h,'medallion status'),
-      flag: colIdxAny(h,'flag'), points: colIdxAny(h,'cumulative points'),
+      flag: colIdxAny(h,'flag'),
+      points: colIdxAny(h,'cumulative points'),
+      cum_term_points: colIdxAny(h, 'cum. term points', 'cum term points', 'term points', 'cum. termly points', 'term_points'),
     };
     console.log('[sync-reading] Total sheet rows:', rows.length);
     console.log('[sync-reading] COL map:', JSON.stringify(COL));
@@ -442,6 +446,7 @@ async function syncReadingData(db: any, token: string, sheetId: string, tab: str
           medallion_status: safe(r, COL.medallion),
           flag: safe(r, COL.flag),
           cumulative_points: safeInt(r, COL.points) || null,
+          cum_term_points: safeInt(r, COL.cum_term_points) ?? safeInt(r, COL.points) ?? null,
         };
       }).filter(Boolean);
 
@@ -463,7 +468,8 @@ async function syncReadingData(db: any, token: string, sheetId: string, tab: str
 async function syncScoreCalendar(db: any, token: string, sheetId: string, tab: string) {
   await markRunning(db, 'score_calendar');
   try {
-    const rows = await fetchSheet(token, sheetId, `${tab}!A:Z`);
+    // Fetch full sheet — Score Calendar has 171 date columns; A:Z cuts everything after 25-May-26.
+    const rows = await fetchSheet(token, sheetId, `'${tab}'`);
     if (rows.length < 2) { await markDone(db, 'score_calendar', 0); return 0; }
     
     const h = rows[0].map((x: any) => String(x || '').trim().toLowerCase());
@@ -529,7 +535,8 @@ async function syncScoreCalendar(db: any, token: string, sheetId: string, tab: s
 async function syncEmailHistory(db: any, token: string, sheetId: string, tab: string) {
   await markRunning(db, 'email_history');
   try {
-    const rows = await fetchSheet(token, sheetId, `${tab}!A:Z`);
+    // Fetch full sheet — no A:Z column limit.
+    const rows = await fetchSheet(token, sheetId, `'${tab}'`);
     if (rows.length < 2) { await markDone(db, 'email_history', 0); return 0; }
     
     const h = rows[0].map((x: any) => String(x || '').trim().toLowerCase());

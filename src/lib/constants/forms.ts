@@ -49,7 +49,7 @@ export const DEFAULT_RC_SESSIONS_LOWER: SessionConfig[] = [
   { day: 'Wednesday', startTime: '5:00 pm', endTime: '5:45 pm' },
   { day: 'Saturday',  startTime: '8:00 am', endTime: '8:45 am' },
   { day: 'Saturday',  startTime: '9:00 am', endTime: '9:45 am' },
-  { day: 'Sunday',    startTime: '3:00 pm', endTime: '4:45 pm' },
+  { day: 'Sunday',    startTime: '3:00 pm', endTime: '3:45 pm' },
 ];
 
 export const DEFAULT_RC_SESSIONS_UPPER: SessionConfig[] = [
@@ -67,7 +67,7 @@ export const DEFAULT_RC_SESSION_OPTIONS: string[] = [
   'Tuesday 6:00 pm – 6:45 pm',
   'Wednesday 5:00 pm – 5:45 pm',
   'Wednesday 6:00 pm – 6:45 pm',
-  'Sunday 3:00 pm – 4:45 pm',
+  'Sunday 3:00 pm – 3:45 pm',
   'Sunday 4:00 pm – 4:45 pm',
 ];
 

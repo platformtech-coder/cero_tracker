@@ -18,6 +18,16 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
+  const filterRep = shouldFilter ? effectiveName : null;
+
+  // 1. Fast path: single-query RPC bypassing PostgREST pagination limits
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_directory_cubs', {
+    p_rep: filterRep,
+  });
+
+  if (!rpcError && rpcData) {
+    return rpcData as (Cub & { cub_first_name: string; cub_last_name: string })[];
+  }
 
   let allData: any[] = [];
   let from = 0;
@@ -41,7 +51,6 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
       `)
       .order('date_onboarded', { ascending: false, nullsFirst: false })
       .range(from, from + size - 1);
-
 
     query = query.eq('is_archived', false);
 
@@ -85,6 +94,16 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = !isAdmin || isFilteredRep;
+  const filterRep = shouldFilter ? effectiveName : null;
+
+  // 1. Fast path: single-query RPC bypassing PostgREST pagination limits
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_directory_families', {
+    p_rep: filterRep,
+  });
+
+  if (!rpcError && rpcData) {
+    return rpcData as Family[];
+  }
 
   let allData: any[] = [];
   let from = 0;

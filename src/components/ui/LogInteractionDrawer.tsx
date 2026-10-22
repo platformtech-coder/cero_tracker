@@ -57,6 +57,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const [type, setType] = useState('');
   const [purpose, setPurpose] = useState('');
   const [status, setStatus] = useState('');
+  const [messageSent, setMessageSent] = useState('');
   const [feedback, setFeedback] = useState('');
   const [actionRequired, setActionRequired] = useState<'Yes' | 'No'>('No');
   const [actionDesc, setActionDesc] = useState('');
@@ -110,6 +111,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     setType('');
     setPurpose('');
     setStatus('');
+    setMessageSent('');
     setFeedback('');
     setActionRequired('No');
     setActionDesc('');
@@ -187,6 +189,10 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     }
     setIsSubmitting(true);
 
+    const effectiveMessageSent = (type.toLowerCase().includes('call') && status && status.toLowerCase() !== 'reached' && messageSent)
+      ? messageSent
+      : undefined;
+
     // If siblings are selected, use multi-cub family interaction action
     if (selectedSiblingIds.size > 0 && siblingsData?.siblings) {
       const selectedSiblings = siblingsData.siblings.filter(s => selectedSiblingIds.has(s.cub_id));
@@ -210,6 +216,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
         purpose,
         status,
         feedback,
+        message_sent: effectiveMessageSent,
         action_required: actionRequired,
         action: actionRequired === 'Yes' ? actionDesc : undefined,
         action_deadline: actionRequired === 'Yes' ? actionDeadline : undefined,
@@ -238,6 +245,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
       purpose,
       status,
       feedback,
+      message_sent: effectiveMessageSent,
       action_required: actionRequired,
       action: actionRequired === 'Yes' ? actionDesc : undefined,
       action_deadline: actionRequired === 'Yes' ? actionDeadline : undefined,
@@ -550,11 +558,42 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
             {/* Status */}
             <div>
               <label style={labelStyle}>Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+              <select 
+                value={status} 
+                onChange={e => {
+                  setStatus(e.target.value);
+                  if (e.target.value.toLowerCase() === 'reached') {
+                    setMessageSent('');
+                  }
+                }} 
+                style={{ ...inputStyle, appearance: 'none' }}
+              >
                 <option value="">Select...</option>
                 {dropdowns['status']?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
+
+            {/* Message Sent (conditional for unsuccessful calls) */}
+            {type.toLowerCase().includes('call') && status && status.toLowerCase() !== 'reached' && (
+              <div style={{ background: 'var(--primary-dim)', padding: '12px 14px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.25)' }}>
+                <label style={{ ...labelStyle, color: 'var(--primary)', marginBottom: '4px' }}>
+                  Was a message sent?
+                </label>
+                <select
+                  value={messageSent}
+                  onChange={e => setMessageSent(e.target.value)}
+                  style={{ ...inputStyle, background: 'var(--bg-card)', borderColor: 'var(--primary)' }}
+                >
+                  <option value="">No message sent</option>
+                  <option value="WhatsApp">WhatsApp</option>
+                  <option value="SMS">SMS</option>
+                  <option value="Email">Email</option>
+                </select>
+                <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
+                  Specify if a follow-up WhatsApp, SMS, or Email was sent for this unreached call.
+                </div>
+              </div>
+            )}
 
             {/* Notes */}
             <div>

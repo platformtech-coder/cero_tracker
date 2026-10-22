@@ -121,7 +121,7 @@ function SessionBuilder({
           padding: '12px 16px', background: 'var(--bg)', border: '1px dashed var(--border)',
           borderRadius: 8, fontSize: 12, color: 'var(--text-3)', marginBottom: 12,
         }}>
-          No sessions added yet. Click "{addLabel}" to add one.
+          No sessions added yet. Click &quot;{addLabel}&quot; to add one.
         </div>
       )}
       {sessions.map((s, i) => (

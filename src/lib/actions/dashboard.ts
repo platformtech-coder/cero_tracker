@@ -84,37 +84,33 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
     if (cub.flag && cub.flag.trim() !== '') flaggedCubs++;
   }
 
-  // Total Families
+  // Parallelize secondary counts
   let famQuery = supabase.from('families').select('id', { count: 'exact' });
   if (shouldFilterByRep) famQuery = famQuery.eq('relationship_owner', effectiveName!);
-  const { count: totalParents } = await famQuery;
 
-  // Actions counts
   let actQuery = supabase.from('actions').select('action_status');
   if (shouldFilterByRep) actQuery = actQuery.eq('handled_by', effectiveName!);
-  const { data: actionsData } = await actQuery;
+
+  const [famRes, actRes, rcPendingRes, orientationPendingRes] = await Promise.all([
+    famQuery,
+    actQuery,
+    supabase.from('pending_signups').select('id', { count: 'exact' }).eq('status', 'Pending').eq('form_source', 'Reading Circle Signup'),
+    supabase.from('pending_signups').select('id', { count: 'exact' }).eq('status', 'Pending').eq('form_source', 'Orientation Signup'),
+  ]);
+
+  const totalParents = famRes.count ?? 0;
   let pendingActionsCount = 0, completedActionsCount = 0;
-  for (const a of (actionsData ?? [])) {
+  for (const a of (actRes.data ?? [])) {
     if (a.action_status === 'Completed') completedActionsCount++;
     else if (a.action_status !== 'Cancelled') pendingActionsCount++;
   }
 
-  // Pending Signups
-  const { count: rcPendingCount } = await supabase
-    .from('pending_signups')
-    .select('id', { count: 'exact' })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Reading Circle Signup');
-
-  const { count: orientationPendingCount } = await supabase
-    .from('pending_signups')
-    .select('id', { count: 'exact' })
-    .eq('status', 'Pending')
-    .eq('form_source', 'Orientation Signup');
+  const rcPendingCount = rcPendingRes.count ?? 0;
+  const orientationPendingCount = orientationPendingRes.count ?? 0;
 
   return {
     totalCubs: allCubs.length,
-    totalParents: totalParents ?? 0,
+    totalParents,
     activeSubs,
     expiredSubs,
     almostExpiringWeek,
@@ -122,8 +118,8 @@ export async function getDashboardStats(repFilter?: string): Promise<DashboardSt
     flaggedCubs,
     pendingActionsCount,
     completedActionsCount,
-    rcPendingCount: rcPendingCount ?? 0,
-    orientationPendingCount: orientationPendingCount ?? 0,
+    rcPendingCount,
+    orientationPendingCount,
   };
 }
 

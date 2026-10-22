@@ -38,6 +38,7 @@ export type OrientationMasterItem = Orientation & {
     sub_status?: string | null;
     date_onboarded?: string | null;
     cumulative_points?: number;
+    cum_term_points?: number;
     last_reading_activity?: string | null;
     reading_circle_category?: string | null;
     orientation_completion_date?: string | null;
@@ -315,7 +316,7 @@ export function getCubAlert(m: OrientationMasterItem): AlertBadgeMeta | null {
   if (isDone) return null;
 
   const days = getDaysSince(m.cubs.date_onboarded);
-  const pts = m.cubs.cumulative_points || 0;
+  const pts = m.cubs.cum_term_points ?? m.cubs.cumulative_points ?? 0;
   const hasAttended = m.attended_status === 'Present' || Boolean(m.attended_date) || m.stage === 'Attended' || m.stage === 'RC Selected' || m.rc_selected_status === 'Completed';
   const hasRC = m.rc_selected_status === 'Completed' || Boolean(m.rc_selected_date) || Boolean(m.cubs.reading_circle_category) || m.stage === 'RC Selected';
 
@@ -363,7 +364,7 @@ function downloadCubsCSV(cubs: OrientationMasterItem[], filterLabel: string) {
     'Attended Status',
     'RC Selected Status',
     'First Win Status',
-    'Points',
+    'Cum. Term Points',
     'Relationship Owner'
   ];
 
@@ -384,7 +385,7 @@ function downloadCubsCSV(cubs: OrientationMasterItem[], filterLabel: string) {
       m.attended_status || '—',
       m.rc_selected_status || '—',
       m.first_win_status || '—',
-      m.cubs.cumulative_points || 0,
+      m.cubs.cum_term_points ?? m.cubs.cumulative_points ?? 0,
       `"${m.cubs.relationship_owner || ''}"`,
     ];
   });
@@ -938,7 +939,7 @@ function OrientationStatsDashboard({
                   <th style={{ textAlign: 'center' }}>Onboarded</th>
                   <th style={{ textAlign: 'center' }}>Status Alert</th>
                   <th style={{ textAlign: 'center' }}>Stage</th>
-                  <th style={{ textAlign: 'center' }}>Points</th>
+                  <th style={{ textAlign: 'center' }}>Cum. Term Points</th>
                   <th style={{ textAlign: 'center' }}>Rep</th>
                   <th></th>
                 </tr>
@@ -947,7 +948,7 @@ function OrientationStatsDashboard({
                 {paginatedCubs.map(m => {
                   const alert = getCubAlert(m);
                   const days = getDaysSince(m.cubs.date_onboarded);
-                  const pts = m.cubs.cumulative_points || 0;
+                  const pts = m.cubs.cum_term_points ?? m.cubs.cumulative_points ?? 0;
 
                   return (
                     <tr

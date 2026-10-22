@@ -40,6 +40,7 @@ export interface Cub {
   medallion_status: string | null;
   flag: string | null;
   cumulative_points: number;
+  cum_term_points?: number;
   cumulative_weekly_points: number;
   last_reading_activity: string | null;
   reading_circle_category: string | null;
@@ -104,6 +105,7 @@ export interface Interaction {
   action: string | null;
   action_deadline: string | null;
   action_status: string | null;
+  message_sent?: string | null;
   logged_by: string;
   created_at: string;
 }

@@ -13,6 +13,7 @@ import {
   Settings,
   Terminal,
   LogOut,
+  BarChart2,
 } from 'lucide-react';
 import { logout } from '@/app/(auth)/actions';
 import type { Profile } from '@/lib/types';
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { label: 'Engagements', href: '/engagements', icon: MessageSquare },
   { label: 'Shift Actions', href: '/shift-actions', icon: ShieldCheck },
   { label: 'Handover', href: '/handover', icon: FileText },
+  { label: 'Reports', href: '/reports', icon: BarChart2 },
 ];
 
 const ADMIN_ITEMS = [

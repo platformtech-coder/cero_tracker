@@ -14,6 +14,10 @@ import {
   Sun,
   AlertTriangle,
   List,
+  BarChart2,
+  Flag,
+  BookOpenCheck,
+  TrendingDown,
 } from 'lucide-react';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '@/app/(auth)/engagements/engagements.module.css';
@@ -502,7 +506,7 @@ export function OrientationSkeleton() {
             { header: 'Onboarded', width: '12%', align: 'center' },
             { header: 'Status Alert', width: '14%', align: 'center' },
             { header: 'Stage', width: '13%', align: 'center' },
-            { header: 'Points', width: '8%', align: 'center' },
+            { header: 'Cum. Term Points', width: '10%', align: 'center' },
             { header: 'Rep', width: '14%', align: 'center' },
             { header: '', width: '6%', align: 'right' },
           ]}
@@ -744,6 +748,456 @@ export function SettingsSkeleton() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 9. Exact Tab Skeletons for Reports:
+ * Perfectly mirrors each tab's unique stat card layout, button toolbar, and table structure.
+ */
+
+// ─── 9a. Flags (Call Parents) Skeleton ───────────────────────────
+export function FlagsReportSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
+      {/* 4 Stat Boxes (matching consolidated structure) */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: '0.85rem',
+        marginBottom: '1.25rem',
+      }}>
+        {/* Card 1: Families Due */}
+        <div className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div className={sharedStyles.statHeader}>
+              <Skeleton width={80} height={12} borderRadius={4} />
+              <Skeleton width={28} height={28} borderRadius={8} />
+            </div>
+            <Skeleton width={55} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+          </div>
+          <Skeleton width={120} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+        </div>
+
+        {/* Card 2: Families Called (Split: Called vs Not Called) */}
+        <div className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div className={sharedStyles.statHeader} style={{ marginBottom: 6 }}>
+            <Skeleton width={90} height={12} borderRadius={4} />
+            <Skeleton width={55} height={18} borderRadius={10} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+            <div style={{ flex: 1 }}>
+              <Skeleton width={40} height={10} borderRadius={3} />
+              <Skeleton width={45} height={24} borderRadius={5} style={{ marginTop: 4 }} />
+              <Skeleton width={50} height={10} borderRadius={3} style={{ marginTop: 4 }} />
+            </div>
+            <div style={{ width: 1, height: 38, background: 'var(--border)' }} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width={55} height={10} borderRadius={3} />
+              <Skeleton width={45} height={24} borderRadius={5} style={{ marginTop: 4 }} />
+              <Skeleton width={50} height={10} borderRadius={3} style={{ marginTop: 4 }} />
+            </div>
+          </div>
+          <Skeleton width={130} height={10} borderRadius={4} style={{ marginTop: 8 }} />
+        </div>
+
+        {/* Card 3: Families Reached */}
+        <div className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div className={sharedStyles.statHeader}>
+              <Skeleton width={100} height={12} borderRadius={4} />
+              <Skeleton width={75} height={18} borderRadius={10} />
+            </div>
+            <Skeleton width={50} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+          </div>
+          <Skeleton width={115} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+        </div>
+
+        {/* Card 4: Not Reached */}
+        <div className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div className={sharedStyles.statHeader}>
+              <Skeleton width={80} height={12} borderRadius={4} />
+              <Skeleton width={28} height={28} borderRadius={8} />
+            </div>
+            <Skeleton width={45} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+          </div>
+          <Skeleton width={135} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+        </div>
+      </div>
+
+      {/* Export Button Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Skeleton width={105} height={30} borderRadius={7} />
+      </div>
+
+      {/* Flags 10-Column Centered Table */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
+              {['Date', 'Rep', 'Families Due', 'Cubs Due', 'Called', 'Reached', 'Not Reached', 'Not Called', 'Cubs Covered', 'Call Rate'].map((col, i) => (
+                <th key={col} style={{ padding: '10px 14px', textAlign: i < 2 ? 'left' : 'center' }}>
+                  <Skeleton width={i < 2 ? 60 : 45} height={11} borderRadius={4} style={{ display: 'inline-block' }} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }).map((_, r) => (
+              <tr key={r} style={{ borderBottom: '1px solid var(--border)' }}>
+                {Array.from({ length: 10 }).map((_, c) => (
+                  <td key={c} style={{ padding: '10px 14px', textAlign: c < 2 ? 'left' : 'center' }}>
+                    <Skeleton width={c < 2 ? 70 : 35} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── 9b. Daily Activity Skeleton ────────────────────────────────
+export function DailyActivitySkeleton() {
+  const cards = [
+    { label: 'Total Calls', width: 75 },
+    { label: 'Successful (Reached)', width: 120 },
+    { label: 'Unsuccessful', width: 85 },
+    { label: 'Messages Sent', width: 95 },
+    { label: 'Total Interactions Logged', width: 145 },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
+      {/* 5 KPI Stat Cards Grid */}
+      <div className={sharedStyles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {cards.map((c, i) => (
+          <div key={i} className={sharedStyles.statCard}>
+            <div className={sharedStyles.statHeader}>
+              <Skeleton width={c.width} height={12} borderRadius={4} />
+              <Skeleton width={28} height={28} borderRadius={8} />
+            </div>
+            <Skeleton width={50} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Export CSV Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Skeleton width={105} height={30} borderRadius={7} />
+      </div>
+
+      {/* 6-Column Table */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
+              {['Rep', 'Total Calls', 'Reached', 'Not Reached', 'Messages Sent', 'Total Interactions'].map((col, i) => (
+                <th key={col} style={{ padding: '10px 14px', textAlign: i === 0 ? 'left' : 'center' }}>
+                  <Skeleton width={i === 0 ? 55 : 65} height={11} borderRadius={4} style={{ display: 'inline-block' }} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }).map((_, r) => (
+              <tr key={r} style={{ borderBottom: '1px solid var(--border)' }}>
+                {Array.from({ length: 6 }).map((_, c) => (
+                  <td key={c} style={{ padding: '10px 14px', textAlign: c === 0 ? 'left' : 'center' }}>
+                    <Skeleton width={c === 0 ? 80 : 40} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── 9c. Reading Circle Skeleton ────────────────────────────────
+export function RCReportSkeleton() {
+  const cards = [
+    { label: 'Expected in Sessions', labelW: 120, valW: 50, subW: 100 },
+    { label: 'Present (Attended)', labelW: 110, valW: 50, subW: 120 },
+    { label: 'Absent', labelW: 55, valW: 45, subW: 105 },
+    { label: 'Never Attended', labelW: 95, valW: 40, subW: 130 },
+    { label: 'Overall Attendance Rate', labelW: 135, valW: 55, subW: 115 },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
+      {/* 5 KPI Stat Cards Grid */}
+      <div className={sharedStyles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {cards.map((c, i) => (
+          <div key={i} className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div className={sharedStyles.statHeader}>
+                <Skeleton width={c.labelW} height={12} borderRadius={4} />
+                <Skeleton width={28} height={28} borderRadius={8} />
+              </div>
+              <Skeleton width={c.valW} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+            </div>
+            <Skeleton width={c.subW} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Export CSV Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Skeleton width={105} height={30} borderRadius={7} />
+      </div>
+
+      {/* 6-Column Session Table with bottom padding */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: '2.5rem',
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
+              {['Session', 'Expected', 'Marked', 'Present', 'Absent', 'Rate'].map((col, i) => (
+                <th key={col} style={{ padding: '10px 14px', textAlign: i === 0 ? 'left' : 'center' }}>
+                  <Skeleton width={i === 0 ? 75 : 50} height={11} borderRadius={4} style={{ display: 'inline-block' }} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }).map((_, r) => (
+              <tr key={r} style={{ borderBottom: '1px solid var(--border)' }}>
+                {Array.from({ length: 6 }).map((_, c) => (
+                  <td key={c} style={{ padding: '10px 14px', textAlign: c === 0 ? 'left' : 'center' }}>
+                    <Skeleton width={c === 0 ? 110 : 35} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── 9d. Orientation Skeleton ───────────────────────────────────
+export function OrientationReportSkeleton() {
+  const cards = [
+    { label: 'Total Gen Comm Cubs', labelW: 125, valW: 50, subW: 95 },
+    { label: 'Completed', labelW: 75, valW: 45, subW: 120 },
+    { label: 'Left (Not Completed)', labelW: 120, valW: 45, subW: 135 },
+    { label: 'In Progress', labelW: 75, valW: 45, subW: 90 },
+    { label: 'Not Started', labelW: 75, valW: 40, subW: 125 },
+    { label: 'Show Rate', labelW: 70, valW: 50, subW: 120 },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
+      {/* 6 KPI Stat Cards Grid */}
+      <div className={sharedStyles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {cards.map((c, i) => (
+          <div key={i} className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div className={sharedStyles.statHeader}>
+                <Skeleton width={c.labelW} height={12} borderRadius={4} />
+                <Skeleton width={28} height={28} borderRadius={8} />
+              </div>
+              <Skeleton width={c.valW} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+            </div>
+            <Skeleton width={c.subW} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Title & Action Buttons Row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Skeleton width={260} height={14} borderRadius={4} />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Skeleton width={155} height={30} borderRadius={7} />
+          <Skeleton width={105} height={30} borderRadius={7} />
+        </div>
+      </div>
+
+      {/* 8-Column Rep Breakdown Table */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
+              {['Rep', 'Total Gen Comm', 'Completed', 'Left (Pending)', 'In Progress', 'Not Started', 'Attended', 'Show Rate'].map((col, i) => (
+                <th key={col} style={{ padding: '10px 14px', textAlign: i === 0 ? 'left' : 'center' }}>
+                  <Skeleton width={i === 0 ? 50 : 60} height={11} borderRadius={4} style={{ display: 'inline-block' }} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }).map((_, r) => (
+              <tr key={r} style={{ borderBottom: '1px solid var(--border)' }}>
+                {Array.from({ length: 8 }).map((_, c) => (
+                  <td key={c} style={{ padding: '10px 14px', textAlign: c === 0 ? 'left' : 'center' }}>
+                    <Skeleton width={c === 0 ? 80 : 35} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── 9e. Expiry & Retention Skeleton ────────────────────────────
+export function ExpiryReportSkeleton() {
+  const cards = [
+    { label: 'Total Gen Comm', labelW: 95, valW: 50, subW: 125 },
+    { label: 'Active Subscriptions', labelW: 115, valW: 50, subW: 95 },
+    { label: 'Expiring in 7 Days', labelW: 110, valW: 40, subW: 120 },
+    { label: 'Expiring in 30 Days', labelW: 115, valW: 45, subW: 100 },
+    { label: 'Expired', labelW: 60, valW: 45, subW: 130 },
+    { label: 'Retention Rate', labelW: 90, valW: 50, subW: 125 },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
+      {/* 6 KPI Stat Cards Grid */}
+      <div className={sharedStyles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+        {cards.map((c, i) => (
+          <div key={i} className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div className={sharedStyles.statHeader}>
+                <Skeleton width={c.labelW} height={12} borderRadius={4} />
+                <Skeleton width={28} height={28} borderRadius={8} />
+              </div>
+              <Skeleton width={c.valW} height={28} borderRadius={6} style={{ marginTop: 6 }} />
+            </div>
+            <Skeleton width={c.subW} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Export CSV Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Skeleton width={105} height={30} borderRadius={7} />
+      </div>
+
+      {/* 7-Column Retention Table */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
+              {['Rep', 'Total Gen Comm', 'Active', 'Expiring ≤ 7d', 'Expiring ≤ 30d', 'Expired', 'Retention Rate'].map((col, i) => (
+                <th key={col} style={{ padding: '10px 14px', textAlign: i === 0 ? 'left' : 'center' }}>
+                  <Skeleton width={i === 0 ? 50 : 60} height={11} borderRadius={4} style={{ display: 'inline-block' }} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 5 }).map((_, r) => (
+              <tr key={r} style={{ borderBottom: '1px solid var(--border)' }}>
+                {Array.from({ length: 7 }).map((_, c) => (
+                  <td key={c} style={{ padding: '10px 14px', textAlign: c === 0 ? 'left' : 'center' }}>
+                    <Skeleton width={c === 0 ? 80 : 35} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Dispatcher ──────────────────────────────────────────────────
+export function ReportsTabContentSkeleton({ tab }: { tab: string }) {
+  switch (tab) {
+    case 'flags':
+      return <FlagsReportSkeleton />;
+    case 'rc':
+      return <RCReportSkeleton />;
+    case 'orientation':
+      return <OrientationReportSkeleton />;
+    case 'expiry':
+      return <ExpiryReportSkeleton />;
+    case 'daily':
+    default:
+      return <DailyActivitySkeleton />;
+  }
+}
+
+// ─── Main Reports Skeleton (Full Page or Tab Content) ────────────
+export function ReportsSkeleton({
+  activeTab = 'daily',
+  hideHeader = false,
+}: {
+  activeTab?: string;
+  hideHeader?: boolean;
+}) {
+  const tabs = [
+    { label: 'Daily Activity', icon: <BarChart2 size={13} style={{ marginRight: 6 }} />, isActive: activeTab === 'daily' },
+    { label: 'Flags', icon: <Flag size={13} style={{ marginRight: 6 }} />, isActive: activeTab === 'flags' },
+    { label: 'Reading Circle', icon: <BookOpenCheck size={13} style={{ marginRight: 6 }} />, isActive: activeTab === 'rc' },
+    { label: 'Orientation', icon: <Compass size={13} style={{ marginRight: 6 }} />, isActive: activeTab === 'orientation' },
+    { label: 'Expiry & Retention', icon: <TrendingDown size={13} style={{ marginRight: 6 }} />, isActive: activeTab === 'expiry' },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
+      {!hideHeader && (
+        <>
+          {/* Navigation Tabs */}
+          <SkeletonTabs tabs={tabs} />
+
+          {/* Filter Toolbar Placeholder (inline-flex, fit-content) */}
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            marginBottom: '1.25rem',
+            padding: '8px 14px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            width: 'fit-content',
+          }}>
+            <Skeleton width={140} height={30} borderRadius={6} />
+            <Skeleton width={110} height={24} borderRadius={6} />
+          </div>
+        </>
+      )}
+
+      {/* Exact Tab-Specific Content Skeleton */}
+      <ReportsTabContentSkeleton tab={activeTab} />
     </div>
   );
 }

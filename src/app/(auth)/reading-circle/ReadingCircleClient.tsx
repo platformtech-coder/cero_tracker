@@ -16,7 +16,7 @@ import AssignRCSelectionDrawer from '@/components/drawers/AssignRCSelectionDrawe
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
 import { formatDate, formatTime } from '@/lib/utils/date';
-import { sortRCSessions, isBareDaySession } from '@/lib/utils/rc';
+import { sortRCSessions, isBareDaySession, normalizeSessionName } from '@/lib/utils/rc';
 import { DEFAULT_RC_SESSION_OPTIONS } from '@/lib/constants/forms';
 import { toast } from 'sonner';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -136,7 +136,9 @@ interface PendingRCRecord {
 // ─── Main Props ─────────────────────────────────────────────────
 interface Props {
   initialRoster: (ReadingCircle & {
-    cubs: Pick<Cub, 'cub_first_name' | 'cub_last_name' | 'segment' | 'relationship_owner' | 'parent_first_name' | 'parent_last_name' | 'parent_phone' | 'parent_email'>
+    cubs: Pick<Cub, 'cub_first_name' | 'cub_last_name' | 'segment' | 'relationship_owner' | 'parent_first_name' | 'parent_last_name' | 'parent_phone' | 'parent_email'> & {
+      sub_status?: string | null;
+    };
   })[];
   initialPending: PendingSignup[];
   initialPendingRC?: PendingRCRecord[];
@@ -198,6 +200,7 @@ export default function ReadingCircleClient({
   const [rosterSearch, setRosterSearch] = useState('');
   const [sessionFilter, setSessionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [subStatusFilter, setSubStatusFilter] = useState<'all' | 'active' | 'expired'>('active');
   const [rosterPage, setRosterPage] = useState(1);
   const [isAttendanceDrawerOpen, setIsAttendanceDrawerOpen] = useState(false);
   const [attendanceSession, setAttendanceSession] = useState<string>('');
@@ -242,13 +245,24 @@ export default function ReadingCircleClient({
 
   const filteredRoster = useMemo(() => {
     const q = rosterSearch.toLowerCase();
-    return roster.filter(r =>
-      (!q || `${r.cubs.cub_first_name} ${r.cubs.cub_last_name} ${r.cubs.parent_first_name} ${r.cubs.parent_last_name}`.toLowerCase().includes(q) ||
-        (r.rc_category || '').toLowerCase().includes(q)) &&
-      (!sessionFilter || r.selected_session === sessionFilter) &&
-      (!categoryFilter || r.rc_category === categoryFilter)
-    );
-  }, [roster, rosterSearch, sessionFilter, categoryFilter]);
+    return roster.filter(r => {
+      const matchesSearch = !q || `${r.cubs.cub_first_name} ${r.cubs.cub_last_name} ${r.cubs.parent_first_name} ${r.cubs.parent_last_name}`.toLowerCase().includes(q) ||
+        (r.rc_category || '').toLowerCase().includes(q) ||
+        (r.cub_id || '').toLowerCase().includes(q);
+
+      const matchesSession = !sessionFilter || r.selected_session === sessionFilter || normalizeSessionName(r.selected_session) === sessionFilter;
+      const matchesCategory = !categoryFilter || r.rc_category === categoryFilter;
+
+      const subStatus = (r.cubs?.sub_status || '').toLowerCase().trim();
+      const isSubActive = !subStatus || subStatus === 'active' || subStatus === 'almost expiring';
+      const matchesSub =
+        subStatusFilter === 'all' ? true :
+        subStatusFilter === 'active' ? isSubActive :
+        !isSubActive;
+
+      return matchesSearch && matchesSession && matchesCategory && matchesSub;
+    });
+  }, [roster, rosterSearch, sessionFilter, categoryFilter, subStatusFilter]);
 
   const { sortedData: sortedRoster, handleSort: handleRosterSort, getSortIndicator: getRosterSortIndicator } = useTableSort(filteredRoster, {
     sortableKeys: ['cubs.cub_first_name', 'cubs.parent_first_name', 'selected_session', 'rc_category', 'weeks_active', 'no_present', 'last_attendance_date', 'cubs.relationship_owner'],
@@ -267,10 +281,10 @@ export default function ReadingCircleClient({
       : DEFAULT_RC_SESSION_OPTIONS;
 
     const set = new Set<string>();
-    base.forEach(s => { if (s && !isBareDaySession(s)) set.add(s.trim()); });
+    base.forEach(s => { if (s && !isBareDaySession(s)) set.add(normalizeSessionName(s)); });
     roster.forEach(r => {
       const s = r.selected_session?.trim();
-      if (s && !isBareDaySession(s)) set.add(s);
+      if (s && !isBareDaySession(s)) set.add(normalizeSessionName(s));
     });
 
     return sortRCSessions(Array.from(set));
@@ -759,7 +773,22 @@ export default function ReadingCircleClient({
                         title="Click row to change session or view cub details"
                       >
                         <td>
-                          <div style={{ fontWeight: 600 }}>{r.cubs.cub_first_name} {r.cubs.cub_last_name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 600 }}>{r.cubs.cub_first_name} {r.cubs.cub_last_name}</span>
+                            {r.cubs.sub_status && r.cubs.sub_status !== 'active' && (
+                              <span style={{
+                                fontSize: '0.65rem',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: r.cubs.sub_status === 'almost expiring' ? 'rgba(234,179,8,0.15)' : 'rgba(239,68,68,0.15)',
+                                color: r.cubs.sub_status === 'almost expiring' ? '#ca8a04' : '#ef4444',
+                                fontWeight: 600,
+                                textTransform: 'capitalize'
+                              }}>
+                                {r.cubs.sub_status}
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-3)' }}>{r.cub_id}</div>
                         </td>
                         <td>

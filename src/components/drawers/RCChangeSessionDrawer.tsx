@@ -313,7 +313,7 @@ export default function RCChangeSessionDrawer({
                 ))}
               </select>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginTop: 6 }}>
-                Category will be automatically recalculated according to the cub's grade.
+                Category will be automatically recalculated according to the cub&apos;s grade.
               </div>
             </div>
           )}

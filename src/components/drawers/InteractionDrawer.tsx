@@ -55,6 +55,7 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
     action: initial?.action ?? '',
     action_deadline: initial?.action_deadline ? initial.action_deadline.slice(0, 10) : '',
     action_status: initial?.action_status ?? '',
+    message_sent: initial?.message_sent ?? '',
   });
 
   const set = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }));
@@ -195,12 +196,35 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
             </div>
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Status</label>
-              <select className={styles.formInput} value={form.status} onChange={e => set('status', e.target.value)}>
+              <select className={styles.formInput} value={form.status} onChange={e => {
+                set('status', e.target.value);
+                if (e.target.value.toLowerCase() === 'reached') {
+                  set('message_sent', '');
+                }
+              }}>
                 <option value="">Select...</option>
                 {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
           </div>
+
+          {/* Conditional Message Sent for Unreached Calls */}
+          {form.type.toLowerCase().includes('call') && form.status && form.status.toLowerCase() !== 'reached' && (
+            <div className={styles.formGroup} style={{ background: 'var(--primary-dim)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.25)' }}>
+              <label className={styles.formLabel} style={{ color: 'var(--primary)', marginBottom: '4px' }}>Was a message sent?</label>
+              <select
+                className={styles.formInput}
+                value={form.message_sent}
+                onChange={e => set('message_sent', e.target.value)}
+                style={{ background: 'var(--bg-card)', borderColor: 'var(--primary)' }}
+              >
+                <option value="">No message sent</option>
+                <option value="WhatsApp">WhatsApp</option>
+                <option value="SMS">SMS</option>
+                <option value="Email">Email</option>
+              </select>
+            </div>
+          )}
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>Feedback / Notes</label>

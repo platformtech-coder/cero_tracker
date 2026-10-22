@@ -2,10 +2,12 @@
 
 :root, [data-theme="light"] {
   --bg:              #f4f7f6;
+  --bg-page:         #f4f7f6;
   --bg-2:            #ffffff;
   --bg-card:         #ffffff;
   --bg-card-hover:   #f8fafc;
   --bg-input:        #f1f5f9;
+  --bg-hover:        #f1f5f9;
   --border:          rgba(0,0,0,0.08);
   --border-active:   rgba(70,189,198,0.4);
 
@@ -35,10 +37,12 @@
 
 [data-theme="dark"] {
   --bg:              #0f172a;
+  --bg-page:         #0f172a;
   --bg-2:            #1e293b;
   --bg-card:         #1e293b;
   --bg-card-hover:   #334155;
   --bg-input:        #0f172a;
+  --bg-hover:        #334155;
   --border:          rgba(255,255,255,0.07);
   --border-active:   rgba(70,189,198,0.5);
 

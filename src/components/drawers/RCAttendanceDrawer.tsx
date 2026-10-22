@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import type { ReadingCircle } from '@/lib/types';
 import { submitRCAttendance } from '@/lib/actions/reading-circle';
-import { sortRCSessions, isBareDaySession } from '@/lib/utils/rc';
+import { sortRCSessions, isBareDaySession, normalizeSessionName } from '@/lib/utils/rc';
 import { DEFAULT_RC_SESSION_OPTIONS } from '@/lib/constants/forms';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ interface RCAttendanceDrawerProps {
       parent_phone?: string;
       relationship_owner?: string;
       segment?: string;
+      sub_status?: string | null;
     };
   })[];
   availableSessions?: string[];
@@ -73,9 +74,13 @@ export default function RCAttendanceDrawer({
   const today = new Date().toISOString().slice(0, 10);
   const [attendanceDate, setAttendanceDate] = useState(today);
 
-  // Filter roster by selected session
+  // Filter roster by selected session and active subscription
   const sessionCubs = useMemo(() => {
     return roster.filter(r => {
+      const subStatus = (r.cubs?.sub_status || '').toLowerCase().trim();
+      const isActive = !subStatus || subStatus === 'active' || subStatus === 'almost expiring';
+      if (!isActive) return false;
+
       if (r.selected_session === selectedSession) return true;
       if (r.selected_session && selectedSession.startsWith(r.selected_session + ' ')) return true;
       return false;

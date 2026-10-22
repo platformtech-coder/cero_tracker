@@ -59,27 +59,76 @@ export function isBareDaySession(session: string): boolean {
   return /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?$/i.test(session.trim());
 }
 
-const RC_DAY_ORDER: Record<string, number> = {
-  monday: 1,
-  tuesday: 2,
-  wednesday: 3,
-  thursday: 4,
-  friday: 5,
-  saturday: 6,
-  sunday: 7,
+export const RC_DAY_ORDER: Record<string, number> = {
+  sunday: 1,
+  monday: 2,
+  tuesday: 3,
+  wednesday: 4,
+  thursday: 5,
+  friday: 6,
+  saturday: 7,
 };
 
 /**
- * Sorts Reading Circle session strings logically by day-of-week, then chronologically by time.
+ * Parses time string like "5:00 pm" or "9:00 am" into total minutes from midnight for sorting.
+ */
+export function parseSessionTimeToMinutes(session: string): number {
+  const match = session.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (!match) return 0;
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  const meridiem = match[3].toLowerCase();
+  if (meridiem === 'pm' && h < 12) h += 12;
+  if (meridiem === 'am' && h === 12) h = 0;
+  return h * 60 + m;
+}
+
+/**
+ * Compares two session strings: day of week (Sunday first), then chronologically by time.
+ */
+export function compareRCSessionStrings(sessionA: string, sessionB: string): number {
+  const dayA = extractSessionDay(sessionA).toLowerCase();
+  const dayB = extractSessionDay(sessionB).toLowerCase();
+  const orderA = RC_DAY_ORDER[dayA] ?? 99;
+  const orderB = RC_DAY_ORDER[dayB] ?? 99;
+  if (orderA !== orderB) return orderA - orderB;
+  return parseSessionTimeToMinutes(sessionA) - parseSessionTimeToMinutes(sessionB);
+}
+
+/**
+ * Normalizes a Reading Circle session string to canonical singular form:
+ * - Strips plural 's' from day name (e.g. "Tuesdays 5:00 pm – 5:45 pm" → "Tuesday 5:00 pm – 5:45 pm")
+ * - Normalizes dash spacing
+ */
+export function normalizeSessionName(session?: string | null): string {
+  if (!session) return '';
+  let s = session.trim();
+  if (!s) return '';
+
+  // Replace plural day prefix with singular
+  s = s.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)s\b/i, (_match, day) => {
+    return day.charAt(0).toUpperCase() + day.slice(1).toLowerCase();
+  });
+
+  return s;
+}
+
+/**
+ * Sorts and deduplicates Reading Circle session strings logically by day-of-week, then chronologically by time.
  */
 export function sortRCSessions(sessions: string[]): string[] {
-  return [...sessions].sort((a, b) => {
-    const dayA = extractSessionDay(a).toLowerCase();
-    const dayB = extractSessionDay(b).toLowerCase();
-    const orderA = RC_DAY_ORDER[dayA] ?? 99;
-    const orderB = RC_DAY_ORDER[dayB] ?? 99;
-    if (orderA !== orderB) return orderA - orderB;
-    return a.localeCompare(b);
-  });
+  // Normalize and deduplicate
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const raw of sessions) {
+    const s = normalizeSessionName(raw);
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      normalized.push(s);
+    }
+  }
+
+  return normalized.sort((a, b) => compareRCSessionStrings(a, b));
 }
 

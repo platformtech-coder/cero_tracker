@@ -155,13 +155,16 @@ export async function getSystemOverview() {
   const errorsData = errorsRes.data as any[];
   if (errorsData && Array.isArray(errorsData)) {
     initialErrors = errorsData;
-    errorSummary = {
-      errors: errorsData.filter(e => e.level === 'error' && e.status === 'active').length,
-      warnings: errorsData.filter(e => e.level === 'warning' && e.status === 'active').length,
-      info: errorsData.filter(e => e.level === 'info' && e.status === 'active').length,
-      unresolved: errorsData.filter(e => e.status === 'active').length,
-      total: errorsData.length,
-    };
+    errorSummary = errorsData.reduce((acc, e) => {
+      acc.total++;
+      if (e.status === 'active') {
+        acc.unresolved++;
+        if (e.level === 'error') acc.errors++;
+        else if (e.level === 'warning') acc.warnings++;
+        else if (e.level === 'info') acc.info++;
+      }
+      return acc;
+    }, { errors: 0, warnings: 0, info: 0, unresolved: 0, total: 0 });
   }
 
   const syncState = (syncStateRes.data ?? []) as any[];
@@ -566,28 +569,30 @@ export async function getSystemErrorLogs(filters?: {
   }
 
   if (filters?.search && filters.search.trim()) {
-    const s = filters.search.trim();
-    query = query.or(`message.ilike.%${s}%,endpoint.ilike.%${s}%`);
+    const s = filters.search.replace(/[,()%_]/g, '').trim();
+    if (s) {
+      query = query.or(`message.ilike.%${s}%,endpoint.ilike.%${s}%`);
+    }
   }
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  const [logsRes, unresolvedRes, totalRes] = await Promise.all([
+    query,
+    supabase.from('system_errors').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('system_errors').select('id', { count: 'exact', head: true }),
+  ]);
 
-  // Fetch updated count summary
-  const { data: allRows } = await supabase
-    .from('system_errors')
-    .select('level, status');
+  if (logsRes.error) throw new Error(logsRes.error.message);
 
-  const rows = allRows ?? [];
+  const logs = logsRes.data ?? [];
   const summary = {
-    errors: rows.filter(l => l.level === 'error' && l.status === 'active').length,
-    warnings: rows.filter(l => l.level === 'warning' && l.status === 'active').length,
-    info: rows.filter(l => l.level === 'info' && l.status === 'active').length,
-    unresolved: rows.filter(l => l.status === 'active').length,
-    total: rows.length,
+    errors: logs.filter(l => l.level === 'error' && l.status === 'active').length,
+    warnings: logs.filter(l => l.level === 'warning' && l.status === 'active').length,
+    info: logs.filter(l => l.level === 'info' && l.status === 'active').length,
+    unresolved: unresolvedRes.count ?? 0,
+    total: totalRes.count ?? 0,
   };
 
-  return { logs: data ?? [], summary };
+  return { logs, summary };
 }
 
 export async function resolveSystemError(id: string) {

@@ -34,6 +34,7 @@ import {
   X,
   ChevronRight,
   Archive,
+  BookOpen,
 } from "lucide-react";
 
 import ArchivedCubsTab from "./ArchivedCubsTab";
@@ -52,6 +53,7 @@ import {
   purgeResolvedErrors,
   simulateSystemLog,
 } from "@/lib/actions/system-admin";
+import { migrateReadingCircleData } from "@/lib/actions/rc-migration";
 import { saveFormsPartialConfig, rebuildForms } from "@/lib/actions/forms";
 import sharedStyles from "@/components/ui/dashboard.module.css";
 import { AppShell } from "@/components/layout/AppShell";
@@ -1076,6 +1078,12 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   );
   const [savingFormKey, setSavingFormKey] = useState<string | null>(null);
   const [isRebuildingForms, setIsRebuildingForms] = useState(false);
+  const [isMigratingRC, setIsMigratingRC] = useState(false);
+  const [rcMigrationResult, setRcMigrationResult] = useState<{
+    success: boolean;
+    message: string;
+    details?: string;
+  } | null>(null);
 
   const [purgeTarget, setPurgeTarget] = useState<TableMeta | null>(null);
   const [cleanupCategory, setCleanupCategory] = useState<
@@ -1356,6 +1364,39 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
     }
   };
 
+  const handleMigrateRC = async () => {
+    setIsMigratingRC(true);
+    setRcMigrationResult(null);
+    toast.loading("Migrating Reading Circle & Orientation data from Google Sheet...", { id: "rc-migration" });
+    try {
+      const res = await migrateReadingCircleData();
+      if (res.success) {
+        toast.success(res.message || "Reading Circle migration completed!", { id: "rc-migration" });
+        setRcMigrationResult({
+          success: true,
+          message: res.message || "Migration succeeded",
+          details: res.details,
+        });
+        refresh();
+      } else {
+        toast.error(res.error || "Migration failed", { id: "rc-migration" });
+        setRcMigrationResult({
+          success: false,
+          message: res.error || "Migration failed",
+          details: res.details,
+        });
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Unexpected error during migration", { id: "rc-migration" });
+      setRcMigrationResult({
+        success: false,
+        message: err.message || "Unexpected error",
+      });
+    } finally {
+      setIsMigratingRC(false);
+    }
+  };
+
   const handleSyncAll = async () => {
     const configuredSheets = SHEETS_CONFIG.filter((cfg) => {
       const sheet = (overview.sheetConfig as any)[cfg.key];
@@ -1611,7 +1652,11 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
             </div>
 
             {/* ── ERROR & LOGGING SECTION ── */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 24 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-1)", marginBottom: 8 }}>
+                System Errors & Logs
+              </div>
+
               {/* 4 Summary Stat Cards */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
                 <div style={{ background: "var(--bg-card)", border: "1px solid #fee2e2", borderRadius: 12, padding: "16px 20px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
@@ -1659,12 +1704,6 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
                   <button onClick={handleResolveAllErrors} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #a7f3d0", background: "#ecfdf5", color: "#059669", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>✓ Resolve All</button>
                   <button onClick={handlePurgeResolvedErrors} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Trash2 size={13} /> Purge Resolved</button>
                 </div>
-              </div>
-
-              {/* Last refreshed */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-3)" }}>
-                <Clock size={13} />
-                <span>Last refreshed: {lastRefreshed || "Just now"} · Auto-refreshes every 20s</span>
               </div>
 
               {/* Log List */}
@@ -1789,6 +1828,126 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 16 }}
               >
+                {/* ── Reading Circle & Orientation Migration (Testing & Sync Tool) ── */}
+                <div
+                  style={{
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 12,
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 14,
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 14,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 10,
+                          background: "var(--primary-dim)",
+                          color: "var(--primary)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <BookOpen size={22} />
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 700, fontSize: 15, color: "var(--text-1)" }}>
+                            Reading Circle & Orientation Migration
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: 6,
+                              background: "rgba(59, 130, 246, 0.12)",
+                              color: "#3b82f6",
+                            }}
+                          >
+                            Testing & Initial Sync
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 3 }}>
+                          Syncs completed orientation, assigned sessions, categories, and historical attendance logs from Google Sheet. Safe to re-run anytime.
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleMigrateRC}
+                      disabled={isMigratingRC || isPurging || !!syncingSheet}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 22px",
+                        background: isMigratingRC ? "var(--bg)" : "var(--primary)",
+                        color: isMigratingRC ? "var(--text-3)" : "white",
+                        border: isMigratingRC ? "1px solid var(--border)" : "none",
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: isMigratingRC ? "not-allowed" : "pointer",
+                        transition: "all 0.15s ease",
+                        boxShadow: isMigratingRC ? "none" : "0 2px 6px rgba(0,0,0,0.12)",
+                      }}
+                    >
+                      <RefreshCw
+                        size={15}
+                        style={{
+                          animation: isMigratingRC ? "spin 1s linear infinite" : undefined,
+                        }}
+                      />
+                      {isMigratingRC ? "Migrating Data…" : "Migrate Reading Circle Data"}
+                    </button>
+                  </div>
+
+                  {rcMigrationResult && (
+                    <div
+                      style={{
+                        background: rcMigrationResult.success ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                        border: `1px solid ${rcMigrationResult.success ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                        borderRadius: 8,
+                        padding: "12px 16px",
+                        fontSize: 13,
+                        color: rcMigrationResult.success ? "var(--green)" : "var(--red)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {rcMigrationResult.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                        <span style={{ fontWeight: 600 }}>{rcMigrationResult.message}</span>
+                      </div>
+                      {rcMigrationResult.details && (
+                        <span style={{ fontSize: 12, opacity: 0.9, fontFamily: "monospace" }}>
+                          {rcMigrationResult.details}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Current Sync State */}
                 <div
                     style={{

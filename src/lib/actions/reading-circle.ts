@@ -5,8 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath, unstable_cache } from 'next/cache';
 import type { ReadingCircle, PendingSignup, Cub } from '@/lib/types';
 import { z } from 'zod';
-import { computeRCCategory, sortRCSessions, isBareDaySession } from '@/lib/utils/rc';
+import { computeRCCategory, sortRCSessions, isBareDaySession, normalizeSessionName } from '@/lib/utils/rc';
 import { recomputeOrientationStage, getNearestDateForDay } from '@/lib/utils/orientation';
+import { enrichPendingParentNames } from '@/lib/utils/enrichSignups';
 import {
   DEFAULT_RC_SESSIONS_LOWER,
   DEFAULT_RC_SESSIONS_UPPER,
@@ -46,13 +47,13 @@ const getCachedRCSessions = unstable_cache(
 
     lower.forEach(s => {
       if (s.day && s.startTime && s.endTime) {
-        sessionsSet.add(`${s.day} ${s.startTime} – ${s.endTime}`.trim());
+        sessionsSet.add(normalizeSessionName(`${s.day} ${s.startTime} – ${s.endTime}`));
       }
     });
 
     upper.forEach(s => {
       if (s.day && s.startTime && s.endTime) {
-        sessionsSet.add(`${s.day} ${s.startTime} – ${s.endTime}`.trim());
+        sessionsSet.add(normalizeSessionName(`${s.day} ${s.startTime} – ${s.endTime}`));
       }
     });
 
@@ -64,7 +65,7 @@ const getCachedRCSessions = unstable_cache(
           mapping.forEach((m: any) => {
             const val = m.session || m.sessionDay;
             if (val && !isBareDaySession(val)) {
-              sessionsSet.add(val.trim());
+              sessionsSet.add(normalizeSessionName(val));
             }
           });
         }
@@ -81,12 +82,12 @@ const getCachedRCSessions = unstable_cache(
     (cubRows ?? []).forEach((r: any) => {
       const s = (r.selected_session || '').trim();
       if (s && !isBareDaySession(s)) {
-        sessionsSet.add(s);
+        sessionsSet.add(normalizeSessionName(s));
       }
     });
 
     if (sessionsSet.size === 0) {
-      DEFAULT_RC_SESSION_OPTIONS.forEach(s => sessionsSet.add(s));
+      DEFAULT_RC_SESSION_OPTIONS.forEach(s => sessionsSet.add(normalizeSessionName(s)));
     }
 
     return sortRCSessions(Array.from(sessionsSet));
@@ -102,7 +103,9 @@ export async function getAvailableRCSessions(): Promise<string[]> {
 
 // ─── Get Reading Circle Roster ─────────────────────────────────
 export async function getReadingCircleRoster(repFilter?: string): Promise<(ReadingCircle & {
-  cubs: Pick<Cub, 'cub_first_name' | 'cub_last_name' | 'segment' | 'relationship_owner' | 'parent_first_name' | 'parent_last_name' | 'parent_phone' | 'parent_email'>
+  cubs: Pick<Cub, 'cub_first_name' | 'cub_last_name' | 'segment' | 'relationship_owner' | 'parent_first_name' | 'parent_last_name' | 'parent_phone' | 'parent_email'> & {
+    sub_status?: string | null;
+  };
 })[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -111,6 +114,15 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
   // Reading Circle is a whole-team responsibility — all reps see all cubs.
   // The optional repFilter narrows results only when explicitly set.
   const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
+
+  // 1. Fast path: single-query RPC bypassing PostgREST pagination & nested join overhead
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_reading_circle_roster', {
+    p_rep: repFilterValue,
+  });
+
+  if (!rpcError && rpcData) {
+    return rpcData as any;
+  }
 
   let allData: any[] = [];
   let from = 0;
@@ -127,7 +139,7 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
       parent_last_name,
       parent_phone,
       parent_email,
-      cubs${innerJoin}(relationship_owner, segment)
+      cubs${innerJoin}(relationship_owner, segment, sub_status)
     )
   `;
 
@@ -161,6 +173,7 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
     cubs: {
       relationship_owner: row.master_cubs?.cubs?.relationship_owner,
       segment: row.master_cubs?.cubs?.segment,
+      sub_status: row.master_cubs?.cubs?.sub_status,
       cub_first_name: row.master_cubs?.cub_first_name,
       cub_last_name: row.master_cubs?.cub_last_name,
       parent_first_name: row.master_cubs?.parent_first_name,
@@ -212,46 +225,7 @@ export async function getPendingRCSignups(repFilter?: string): Promise<PendingSi
   let results = data as PendingSignup[];
 
   // If any signup has a phone number as parent_name or missing parent_name, enrich from master_cubs
-  const needsParentName = results.filter(
-    r => !r.parent_name || r.parent_name === r.parent_phone || /^[\d\s+\-()]{6,}$/.test(r.parent_name.trim())
-  );
-  if (needsParentName.length > 0) {
-    const cubIds = needsParentName.map(r => r.matched_cub_id).filter(Boolean) as string[];
-    const phones = needsParentName.map(r => r.parent_phone).filter(Boolean);
-
-    const parentMapByCubId = new Map<string, string>();
-    const parentMapByPhone = new Map<string, string>();
-
-    if (cubIds.length > 0) {
-      const { data: cubMatches } = await supabase
-        .from('master_cubs')
-        .select('cub_id, parent_first_name, parent_last_name')
-        .in('cub_id', cubIds);
-      (cubMatches || []).forEach(c => {
-        const fullName = `${c.parent_first_name || ''} ${c.parent_last_name || ''}`.trim();
-        if (fullName) parentMapByCubId.set(c.cub_id, fullName);
-      });
-    }
-
-    if (phones.length > 0) {
-      const { data: phoneMatches } = await supabase
-        .from('master_cubs')
-        .select('parent_phone, parent_first_name, parent_last_name')
-        .in('parent_phone', phones);
-      (phoneMatches || []).forEach(p => {
-        const fullName = `${p.parent_first_name || ''} ${p.parent_last_name || ''}`.trim();
-        if (fullName && p.parent_phone) parentMapByPhone.set(p.parent_phone, fullName);
-      });
-    }
-
-    results = results.map(r => {
-      const isBadName = !r.parent_name || r.parent_name === r.parent_phone || /^[\d\s+\-()]{6,}$/.test(r.parent_name.trim());
-      if (!isBadName) return r;
-      const resolved = (r.matched_cub_id && parentMapByCubId.get(r.matched_cub_id)) ||
-                       (r.parent_phone && parentMapByPhone.get(r.parent_phone));
-      return resolved ? { ...r, parent_name: resolved } : r;
-    });
-  }
+  results = await enrichPendingParentNames(supabase, results);
 
   if (repFilterValue) {
     const { data: cubs } = await supabase
@@ -357,60 +331,6 @@ export async function processRCSignup(formData: z.infer<typeof ProcessSignupSche
 
   if (confirmErr) return { error: confirmErr.message };
 
-  // ── Sync orientation journey for this cub ──────────────────────
-  // Fetch current orientation row (if exists) to recompute stage
-  const { data: orientationRow } = await supabase
-    .from('orientation')
-    .select('*')
-    .eq('cub_id', effectiveCubId)
-    .maybeSingle();
-
-  if (orientationRow) {
-    const rcDate = getNearestDateForDay(session);
-    const merged = {
-      ...orientationRow,
-      rc_selected_status: 'Completed',
-      rc_selected_date: orientationRow.rc_selected_date || rcDate,
-    };
-    const stageResult = recomputeOrientationStage({
-      invited_status: merged.invited_status,
-      booked_status: merged.booked_status,
-      attended_status: merged.attended_status,
-      first_win_status: merged.first_win_status,
-      rc_selected_status: 'Completed',
-    });
-
-    await supabase
-      .from('orientation')
-      .update({
-        rc_selected_status: 'Completed',
-        rc_selected_date: merged.rc_selected_date,
-        stage: stageResult.stage,
-        stage_status: stageResult.stage_status,
-        next_stage: stageResult.next_stage,
-        completion_date: stageResult.completion_date,
-      })
-      .eq('cub_id', effectiveCubId);
-
-    // Propagate stage to cubs table
-    await supabase
-      .from('cubs')
-      .update({
-        orientation_stage: stageResult.stage,
-        orientation_stage_status: stageResult.stage_status,
-        orientation_next_stage: stageResult.next_stage,
-        orientation_completion_date: stageResult.completion_date,
-        reading_circle_category: rcCategory,
-      })
-      .eq('cub_id', effectiveCubId);
-  } else {
-    // No orientation row yet — still propagate RC category to cubs
-    await supabase
-      .from('cubs')
-      .update({ reading_circle_category: rcCategory })
-      .eq('cub_id', effectiveCubId);
-  }
-
   revalidatePath('/reading-circle');
   revalidatePath('/orientation');
   revalidatePath('/directory');
@@ -503,17 +423,6 @@ export async function changeCubRCSession(formData: z.infer<typeof ChangeSessionS
 
   const newCategory = computeRCCategory(master.grade, new_session, lowerCategory, upperCategory);
 
-  // Upsert into reading_circle (supports both new assignments from Pending RC and session changes)
-  const { error: rcErr } = await supabase
-    .from('reading_circle')
-    .upsert({
-      cub_id,
-      selected_session: new_session,
-      rc_category: newCategory,
-    }, { onConflict: 'cub_id' });
-
-  if (rcErr) return { error: rcErr.message };
-
   // Sync orientation journey — recompute stage after RC session change
   const { data: orientationRow } = await supabase
     .from('orientation')
@@ -521,46 +430,32 @@ export async function changeCubRCSession(formData: z.infer<typeof ChangeSessionS
     .eq('cub_id', cub_id)
     .maybeSingle();
 
+  const rcDate = getNearestDateForDay(new_session);
+  let stageResult: any = null;
+
   if (orientationRow) {
-    const rcDate = getNearestDateForDay(new_session);
-    const stageResult = recomputeOrientationStage({
+    stageResult = recomputeOrientationStage({
       invited_status: orientationRow.invited_status,
       booked_status: orientationRow.booked_status,
       attended_status: orientationRow.attended_status,
       first_win_status: orientationRow.first_win_status,
       rc_selected_status: 'Completed',
     });
-
-    await supabase
-      .from('orientation')
-      .update({
-        rc_selected_status: 'Completed',
-        rc_selected_date: orientationRow.rc_selected_date || rcDate,
-        stage: stageResult.stage,
-        stage_status: stageResult.stage_status,
-        next_stage: stageResult.next_stage,
-        completion_date: stageResult.completion_date,
-      })
-      .eq('cub_id', cub_id);
-
-    // Propagate to cubs table
-    await supabase
-      .from('cubs')
-      .update({
-        orientation_stage: stageResult.stage,
-        orientation_stage_status: stageResult.stage_status,
-        orientation_next_stage: stageResult.next_stage,
-        orientation_completion_date: stageResult.completion_date,
-        reading_circle_category: newCategory,
-      })
-      .eq('cub_id', cub_id);
-  } else {
-    // No orientation row — just update RC category on cubs
-    await supabase
-      .from('cubs')
-      .update({ reading_circle_category: newCategory })
-      .eq('cub_id', cub_id);
   }
+
+  // Atomically update reading_circle, orientation, and cubs in single transaction
+  const { error: atomicErr } = await supabase.rpc('change_rc_session_atomic', {
+    p_cub_id: cub_id,
+    p_new_session: new_session,
+    p_new_category: newCategory,
+    p_rc_date: rcDate,
+    p_stage: stageResult?.stage ?? null,
+    p_stage_status: stageResult?.stage_status ?? null,
+    p_next_stage: stageResult?.next_stage ?? null,
+    p_completion_date: stageResult?.completion_date ?? null,
+  });
+
+  if (atomicErr) return { error: atomicErr.message };
 
   revalidatePath('/reading-circle');
   revalidatePath('/orientation');

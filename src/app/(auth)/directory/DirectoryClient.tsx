@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown, BookMarked, Loader2, Calendar } from 'lucide-react';
 import type { Cub, Family, Profile, Interaction, Action } from '@/lib/types';
 import { getCubActivity, getCubsForFamily, getDirectoryCubs, getDirectoryFamilies } from '@/lib/actions/directory';
+import { getCubReadingAudit, type ReadingAuditResult } from '@/lib/actions/perbicubs-api';
 
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
@@ -18,6 +19,13 @@ import {
   countCubFilters,
   type CubFilterState,
 } from '@/components/ui/DirectoryCubFilter';
+import {
+  DirectoryFamilyFilter,
+  applyFamilyFilters,
+  emptyFamilyFilterState,
+  countFamilyFilters,
+  type FamilyFilterState,
+} from '@/components/ui/DirectoryFamilyFilter';
 import { Skeleton, SkeletonActivityTimeline, SkeletonTable } from '@/components/ui/Skeleton';
 
 const PAGE_SIZE = 25;
@@ -52,11 +60,51 @@ function SubStatusBadge({ status }: { status: string }) {
 
 // ─── Cub Profile Drawer ──────────────────────────────────────────
 function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
-  const [tab, setTab] = useState<'overview' | 'activity' | 'email'>('overview');
+  const [tab, setTab] = useState<'overview' | 'activity' | 'email' | 'reading_audit'>('overview');
   const [activityTab, setActivityTab] = useState<'interactions' | 'actions'>('interactions');
   const [activity, setActivity] = useState<{ interactions: Interaction[]; actions: Action[]; email_history?: any }>({ interactions: [], actions: [] });
   const [loadingActivity, setLoadingActivity] = useState(true);
   const openInteractionDrawer = useInteractionStore(state => state.openDrawer);
+
+  // Reading Audit state
+  const [auditStart, setAuditStart] = useState('');
+  const [auditEnd, setAuditEnd] = useState('');
+  const [auditResult, setAuditResult] = useState<ReadingAuditResult | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditPending, startAuditTransition] = useTransition();
+
+  const handleQuickPick = useCallback((type: 'week' | '30d' | '90d') => {
+    const d = new Date();
+    const t = d.toISOString().slice(0, 10);
+    if (type === 'week') {
+      d.setDate(d.getDate() - d.getDay());
+      setAuditStart(d.toISOString().slice(0, 10));
+    } else if (type === '30d') {
+      d.setDate(d.getDate() - 30);
+      setAuditStart(d.toISOString().slice(0, 10));
+    } else {
+      d.setDate(d.getDate() - 90);
+      setAuditStart(d.toISOString().slice(0, 10));
+    }
+    setAuditEnd(t);
+  }, []);
+
+  useEffect(() => {
+    handleQuickPick('week');
+  }, [handleQuickPick]);
+
+  const runAudit = () => {
+    setAuditResult(null);
+    setAuditError(null);
+    startAuditTransition(async () => {
+      const res = await getCubReadingAudit(cub.cub_id, auditStart, auditEnd);
+      if (res.success) {
+        setAuditResult(res.data);
+      } else {
+        setAuditError(res.error);
+      }
+    });
+  };
 
   // Fetch live activity when opened
   useEffect(() => {
@@ -143,6 +191,13 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
             <button className={`${tabStyles.tabBtn} ${tab === 'overview' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('overview')} style={{ padding: '8px 12px', fontSize: 13 }}>Overview</button>
             <button className={`${tabStyles.tabBtn} ${tab === 'activity' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('activity')} style={{ padding: '8px 12px', fontSize: 13 }}>Activity</button>
             <button className={`${tabStyles.tabBtn} ${tab === 'email' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('email')} style={{ padding: '8px 12px', fontSize: 13 }}>Email History</button>
+            <button
+              className={`${tabStyles.tabBtn} ${tab === 'reading_audit' ? tabStyles.tabBtnActive : ''}`}
+              onClick={() => { setTab('reading_audit'); setAuditResult(null); setAuditError(null); }}
+              style={{ padding: '8px 12px', fontSize: 13 }}
+            >
+              Reading Audit
+            </button>
           </div>
 
           {tab === 'overview' && (
@@ -151,7 +206,7 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
               <div className={sharedStyles.drawerSection}>
                 <div className={sharedStyles.drawerSectionTitle}>Reading Stats</div>
                 <div className={sharedStyles.statChips} style={{ marginBottom: 8 }}>
-                  <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal}>{cub.cumulative_points || 0}</div><div className={sharedStyles.statChipLbl}>Total Points</div></div>
+                  <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal}>{cub.cum_term_points ?? cub.cumulative_points ?? 0}</div><div className={sharedStyles.statChipLbl}>Cum. Termly Points</div></div>
                   <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal}>{cub.cumulative_weekly_points || 0}</div><div className={sharedStyles.statChipLbl}>Weekly Points</div></div>
                   <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal} style={{ fontSize: 13 }}>{cub.last_reading_activity ? formatDate(cub.last_reading_activity) : '—'}</div><div className={sharedStyles.statChipLbl}>Last Reading Activity</div></div>
                 </div>
@@ -297,6 +352,194 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
               </div>
             </div>
           )}
+
+          {tab === 'reading_audit' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, gap: '1rem' }}>
+              {/* Date Range Pickers */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
+                    From
+                  </label>
+                  <input
+                    type="date"
+                    value={auditStart}
+                    max={auditEnd}
+                    onChange={e => setAuditStart(e.target.value)}
+                    style={{
+                      width: '100%', padding: '0.5rem 0.75rem', borderRadius: 7,
+                      border: '1px solid var(--border)', background: 'var(--bg-card)',
+                      color: 'var(--text-1)', fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
+                    To
+                  </label>
+                  <input
+                    type="date"
+                    value={auditEnd}
+                    min={auditStart}
+                    onChange={e => setAuditEnd(e.target.value)}
+                    style={{
+                      width: '100%', padding: '0.5rem 0.75rem', borderRadius: 7,
+                      border: '1px solid var(--border)', background: 'var(--bg-card)',
+                      color: 'var(--text-1)', fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Quick-pick: Current Week */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleQuickPick('week')}
+                  style={{
+                    padding: '4px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600,
+                    border: '1px solid var(--border)', background: 'var(--bg-card)',
+                    color: 'var(--text-2)', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  This Week (Sun–Sat)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickPick('30d')}
+                  style={{
+                    padding: '4px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600,
+                    border: '1px solid var(--border)', background: 'var(--bg-card)',
+                    color: 'var(--text-2)', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  Last 30 Days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickPick('90d')}
+                  style={{
+                    padding: '4px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 600,
+                    border: '1px solid var(--border)', background: 'var(--bg-card)',
+                    color: 'var(--text-2)', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  Last 90 Days
+                </button>
+              </div>
+
+              {/* Fetch Button */}
+              <button
+                onClick={runAudit}
+                disabled={auditPending || !auditStart || !auditEnd}
+                className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center', padding: '0.65rem 1rem' }}
+              >
+                {auditPending
+                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Fetching from Perbicubs...</>
+                  : <><BookMarked size={14} /> Get Reading Data</>}
+              </button>
+
+              {/* Error */}
+              {auditError && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                  borderRadius: 8, padding: '0.75rem 1rem', fontSize: '0.82rem',
+                  color: 'var(--red, #ef4444)', display: 'flex', gap: '0.5rem', alignItems: 'flex-start',
+                }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  {auditError}
+                </div>
+              )}
+
+              {/* Results */}
+              {auditResult && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, gap: '0.75rem' }}>
+                  {/* Summary chip */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '1rem',
+                    background: 'var(--bg-card)', border: '1px solid var(--border)',
+                    borderRadius: 10, padding: '0.75rem 1rem',
+                  }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>
+                        {auditResult.total_points}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>
+                        Total Points
+                      </div>
+                    </div>
+                    <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--green)', lineHeight: 1 }}>
+                        {auditResult.books.filter(b => b.status === 'completed').length}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>
+                        Books Passed
+                      </div>
+                    </div>
+                    <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-2)', lineHeight: 1 }}>
+                        {auditResult.books.length}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>
+                        Quizzes Taken
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Books table */}
+                  <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    {auditResult.books.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)', fontSize: '0.85rem' }}>
+                        No quiz records found for this period.
+                      </div>
+                    ) : (
+                      <table className={sharedStyles.miniTable}>
+                        <thead>
+                          <tr>
+                            <th>Book</th>
+                            <th>Quiz Date</th>
+                            <th style={{ textAlign: 'center' }}>Score</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {auditResult.books.map((b, i) => (
+                            <tr key={i}>
+                              <td style={{ whiteSpace: 'normal', minWidth: 140, fontWeight: 500 }}>{b.book}</td>
+                              <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>
+                                {b.quiz_date ? formatDate(b.quiz_date) : '—'}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span style={{
+                                  display: 'inline-block', padding: '2px 8px', borderRadius: 20,
+                                  fontSize: '0.75rem', fontWeight: 700,
+                                  background: b.score > 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.1)',
+                                  color: b.score > 0 ? 'var(--green, #22c55e)' : 'var(--red, #ef4444)',
+                                }}>
+                                  {b.score}
+                                </span>
+                              </td>
+                              <td>
+                                <span style={{
+                                  fontSize: '0.75rem', fontWeight: 600, textTransform: 'capitalize',
+                                  color: b.status === 'completed' ? 'var(--green, #22c55e)' : 'var(--text-3)',
+                                }}>
+                                  {b.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -312,19 +555,19 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
   const [familyCubs, setFamilyCubs] = useState<any[]>([]);
   const [loadingCubs, setLoadingCubs] = useState(true);
 
-  if (!family) return null;
-
   // Load cubs from DB for this family
   useEffect(() => {
+    if (!family) return;
     setLoadingCubs(true);
     getCubsForFamily(family.parent_phone ?? null, family.parent_email ?? null).then(cubs => {
       setFamilyCubs(cubs);
       setLoadingCubs(false);
     });
-  }, [family.parent_phone, family.parent_email]);
+  }, [family?.parent_phone, family?.parent_email]);
 
   // Fetch combined activity for all cubs in family
   useEffect(() => {
+    if (!family) return;
     const ids = familyCubs.map((c: any) => c.cub_id).filter(Boolean);
     if (ids.length > 0) {
       setLoadingActivity(true);
@@ -341,11 +584,13 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
     } else if (!loadingCubs) {
       setLoadingActivity(false);
     }
-  }, [familyCubs, loadingCubs]);
+  }, [family, familyCubs, loadingCubs]);
 
   const handleCubClick = (cub: any) => {
     setSelectedCubForDrawer(cub);
   };
+
+  if (!family) return null;
 
   return (
     <>
@@ -587,7 +832,7 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
   const [famSearch, setFamSearch] = useState('');
   const [famPage, setFamPage] = useState(1);
 
-  // ── Advanced filter state ──────────────────────────────────────────────────
+  // ── Advanced filter state (Cubs) ───────────────────────────────────────────
   const allSchools = useMemo(() => {
     const s = new Set<string>();
     (cubs ?? []).forEach(c => { if (c.school_name) s.add(c.school_name); });
@@ -625,19 +870,52 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
   );
 
   const { sortedData: sortedCubs, handleSort: handleCubsSort, getSortIndicator: getCubsSortIndicator } = useTableSort(filteredCubs, {
-    sortableKeys: ['last_engagement_activity', 'cub_first_name', 'grade', 'stream', 'segment', 'sub_status', 'sub_end_date', 'no_sub_days', 'orientation_stage', 'orientation_stage_status', 'orientation_next_stage', 'orientation_completion_date', 'flag', 'current_streak', 'streak_label', 'current_league', 'cumulative_points', 'cumulative_weekly_points', 'handled_by_last', 'purpose_last'],
+    sortableKeys: ['last_engagement_activity', 'cub_first_name', 'grade', 'stream', 'segment', 'sub_status', 'sub_end_date', 'no_sub_days', 'orientation_stage', 'orientation_stage_status', 'orientation_next_stage', 'orientation_completion_date', 'flag', 'current_streak', 'streak_label', 'current_league', 'cum_term_points', 'cumulative_points', 'cumulative_weekly_points', 'handled_by_last', 'purpose_last'],
     getSortValue: (item, key) => item[key as keyof typeof item],
   });
 
   const paginatedCubs = sortedCubs.slice((cubPage - 1) * PAGE_SIZE, cubPage * PAGE_SIZE);
 
-  const filteredFamilies = useMemo(() => {
+  // ── Advanced filter state (Families) ──────────────────────────────────────
+  const allFamilySchools = useMemo(() => {
+    const s = new Set<string>();
+    (families ?? []).forEach(f => (f.schools ?? []).forEach(sc => s.add(sc)));
+    return Array.from(s).sort();
+  }, [families]);
+
+  const allFamilySegments = useMemo(() => {
+    const s = new Set<string>();
+    (families ?? []).forEach(f => (f.segments ?? []).forEach(sg => s.add(sg)));
+    return Array.from(s).sort();
+  }, [families]);
+
+  const allFamilyReps = useMemo(() => {
+    const s = new Set<string>();
+    (families ?? []).forEach(f => { if (f.relationship_owner) s.add(f.relationship_owner); });
+    return Array.from(s).sort();
+  }, [families]);
+
+  const [famFilters, setFamFilters] = useState<FamilyFilterState>(emptyFamilyFilterState);
+  const famFiltersActive = countFamilyFilters(famFilters);
+
+  const resetFamFilters = () => {
+    setFamFilters(emptyFamilyFilterState());
+    setFamPage(1);
+  };
+
+  const searchFilteredFamilies = useMemo(() => {
     if (!families) return [];
     const q = famSearch.toLowerCase();
+    if (!q) return families;
     return families.filter(f =>
-      !q || `${f.parent_first_name} ${f.parent_last_name} ${f.parent_phone ?? ''} ${f.parent_email ?? ''}`.toLowerCase().includes(q)
+      `${f.parent_first_name} ${f.parent_last_name} ${f.parent_phone ?? ''} ${f.parent_email ?? ''}`.toLowerCase().includes(q)
     );
   }, [families, famSearch]);
+
+  const filteredFamilies = useMemo(
+    () => applyFamilyFilters(searchFilteredFamilies, famFilters),
+    [searchFilteredFamilies, famFilters]
+  );
 
   const paginatedFamilies = filteredFamilies.slice((famPage - 1) * PAGE_SIZE, famPage * PAGE_SIZE);
 
@@ -801,10 +1079,10 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
                         {getCubsSortIndicator('current_league') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                       </div>
                     </th>
-                    <th style={{ textAlign: 'center', minWidth: '90px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('cumulative_points')}>
+                    <th style={{ textAlign: 'center', minWidth: '90px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('cum_term_points')}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        Cumm. Points
-                        {getCubsSortIndicator('cumulative_points') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        Cum. Term Points
+                        {getCubsSortIndicator('cum_term_points') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                       </div>
                     </th>
                     <th style={{ textAlign: 'center', minWidth: '100px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleCubsSort('cumulative_weekly_points')}>
@@ -861,7 +1139,7 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
                       <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.current_streak || 0}</td>
                       <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.streak_label || '—'}</td>
                       <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.current_league || '—'}</td>
-                      <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.cumulative_points || 0}</td>
+                      <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.cum_term_points ?? cub.cumulative_points ?? 0}</td>
                       <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.cumulative_weekly_points || 0}</td>
                       <td style={{ fontSize: '0.82rem', textAlign: 'center' }}>{cub.handled_by_last || '—'}</td>
                       <td style={{ fontSize: '0.82rem', textAlign: 'center', maxWidth: '200px' }}>
@@ -898,18 +1176,27 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
                 { header: 'Email', width: '22%' },
               ]}
               showSearch={true}
-              showFilters={false}
+              showFilters={true}
             />
           </div>
         ) : (
           <div className={sharedStyles.tableWrap}>
             <div className={sharedStyles.tableControls}>
-              <div className={sharedStyles.tableControlsLeft}>
-                <div style={{ position: 'relative', flex: 0 }}>
+              <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: '0 0 auto' }}>
                   <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
                   <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search by name or contact..."
                     value={famSearch} onChange={e => { setFamSearch(e.target.value); setFamPage(1); }} />
                 </div>
+                <DirectoryFamilyFilter
+                  allSchools={allFamilySchools}
+                  allSegments={allFamilySegments.length > 0 ? allFamilySegments : ['Gen. Comm', 'CDLS', 'RCS']}
+                  allReps={allFamilyReps}
+                  value={famFilters}
+                  onChange={(next) => { setFamFilters(next); setFamPage(1); }}
+                  onReset={resetFamFilters}
+                  totalActive={famFiltersActive}
+                />
               </div>
               <div className={sharedStyles.tableControlsRight}>
                 <span className={sharedStyles.sectionCount}>{filteredFamilies.length} of {(families ?? []).length}</span>
@@ -919,7 +1206,7 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
             {paginatedFamilies.length === 0 ? (
               <div className={sharedStyles.emptyState}>
                 <div className={sharedStyles.emptyStateTitle}>No families found</div>
-                <div className={sharedStyles.emptyStateSub}>Try adjusting your search</div>
+                <div className={sharedStyles.emptyStateSub}>Try adjusting your search or filters</div>
               </div>
             ) : (
               <div style={{ flex: 1, overflow: 'auto' }}>

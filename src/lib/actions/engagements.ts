@@ -19,6 +19,16 @@ export async function getInteractions(repFilter?: string): Promise<Interaction[]
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
   const shouldFilter = isFilteredRep;
+  const filterRep = shouldFilter ? effectiveName : null;
+
+  // 1. Fast path: server-side RPC avoids PostgREST 414 URI Too Long & JS filter loops
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_rep_interactions', {
+    p_rep_name: filterRep,
+  });
+
+  if (!rpcError && rpcData) {
+    return rpcData as Interaction[];
+  }
 
   let query = supabase
     .from('interactions')
@@ -85,15 +95,18 @@ export async function getAllActions(repFilter?: string): Promise<Action[]> {
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   
-  // Map joined properties back to the top level action object
-  const actions = (data || []).map((row: any) => ({
-    ...row,
-    sub_status: row.master_cubs?.cubs?.sub_status,
-    orientation_stage: row.master_cubs?.cubs?.orientation_stage,
-    flag: row.master_cubs?.cubs?.flag,
-    relationship_owner: row.master_cubs?.cubs?.relationship_owner,
-    master_cubs: undefined
-  }));
+  // Map joined properties back to the top level action object (safe against array or object from PostgREST)
+  const actions = (data || []).map((row: any) => {
+    const cub = Array.isArray(row.master_cubs?.cubs) ? row.master_cubs.cubs[0] : row.master_cubs?.cubs;
+    return {
+      ...row,
+      sub_status: cub?.sub_status,
+      orientation_stage: cub?.orientation_stage,
+      flag: cub?.flag,
+      relationship_owner: cub?.relationship_owner,
+      master_cubs: undefined,
+    };
+  });
 
   return actions as Action[];
 }
@@ -144,17 +157,24 @@ export async function searchCubs(query: string, searchAll = true) {
   // Pass 1: prefix match on cub_first_name or cub_last_name (highest relevance)
   const prefixFilter = (q: any) => {
     const prefixOrs = words
-      .map(w => `cub_first_name.ilike.${w}%,cub_last_name.ilike.${w}%,parent_first_name.ilike.${w}%,parent_last_name.ilike.${w}%`)
+      .map(w => {
+        const clean = w.replace(/[,()%_]/g, '').trim();
+        return clean ? `cub_first_name.ilike.${clean}%,cub_last_name.ilike.${clean}%,parent_first_name.ilike.${clean}%,parent_last_name.ilike.${clean}%` : '';
+      })
+      .filter(Boolean)
       .join(',');
-    return q.or(prefixOrs);
+    return prefixOrs ? q.or(prefixOrs) : q;
   };
 
   // Pass 2: broader contains match (catches mid-name hits)
   const containsFilter = (q: any) => {
     words.forEach((w: string) => {
-      q = q.or(
-        `cub_first_name.ilike.%${w}%,cub_last_name.ilike.%${w}%,parent_first_name.ilike.%${w}%,parent_last_name.ilike.%${w}%,parent_phone.ilike.%${w}%,cub_id.ilike.%${w}%`
-      );
+      const clean = w.replace(/[,()%_]/g, '').trim();
+      if (clean) {
+        q = q.or(
+          `cub_first_name.ilike.%${clean}%,cub_last_name.ilike.%${clean}%,parent_first_name.ilike.%${clean}%,parent_last_name.ilike.%${clean}%,parent_phone.ilike.%${clean}%,cub_id.ilike.%${clean}%`
+        );
+      }
     });
     return q;
   };
@@ -208,6 +228,7 @@ const InteractionSchema = z.object({
   purpose: z.string().min(1, 'Purpose is required'),
   status: z.string().optional(),
   feedback: z.string().optional(),
+  message_sent: z.string().optional().nullable(),
   action_required: z.enum(['Yes', 'No']),
   action: z.string().optional(),
   action_deadline: z.string().optional(),
@@ -230,6 +251,7 @@ export async function submitInteraction(formData: InteractionFormData) {
     .from('interactions')
     .insert({
       ...parsed.data,
+      message_sent: parsed.data.message_sent || null,
       logged_by: user.id,
       date: parsed.data.date || new Date().toISOString(),
     })
@@ -315,6 +337,7 @@ export interface MultiCubInteractionPayload {
   purpose: string;
   status?: string | null;
   feedback?: string | null;
+  message_sent?: string | null;
   action_required: 'Yes' | 'No';
   action?: string | null;
   action_cub_id?: string | null;
@@ -348,6 +371,7 @@ export async function submitFamilyInteraction(data: MultiCubInteractionPayload) 
     purpose: data.purpose,
     status: data.status || null,
     feedback: data.feedback || null,
+    message_sent: data.message_sent || null,
     action_required: data.action_required,
     action: data.action || null,
     action_deadline: data.action_deadline || null,
@@ -443,6 +467,7 @@ const EditInteractionSchema = z.object({
   purpose: z.string().min(1),
   status: z.string().optional(),
   feedback: z.string().optional(),
+  message_sent: z.string().optional().nullable(),
   action_required: z.enum(['Yes', 'No']),
   action: z.string().optional(),
   action_deadline: z.string().optional(),
@@ -480,6 +505,7 @@ export async function editInteraction(formData: z.infer<typeof EditInteractionSc
       purpose: parsed.data.purpose,
       status: parsed.data.status || null,
       feedback: parsed.data.feedback || null,
+      message_sent: parsed.data.message_sent || null,
       action_required: parsed.data.action_required,
       action: parsed.data.action || null,
       action_deadline: parsed.data.action_deadline || null,
@@ -540,6 +566,7 @@ const FollowUpSchema = z.object({
     purpose: z.string(),
     status: z.string().optional(),
     feedback: z.string().optional(),
+    message_sent: z.string().optional().nullable(),
     action_required: z.enum(['Yes', 'No']),
     action: z.string().optional(),
     action_deadline: z.string().optional(),
@@ -577,6 +604,7 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
       purpose: followUp.purpose,
       status: followUp.status || null,
       feedback: followUp.feedback || null,
+      message_sent: followUp.message_sent || null,
       action_required: followUp.action_required,
       action: followUp.action || null,
       action_deadline: followUp.action_deadline || null,
@@ -689,9 +717,12 @@ export async function deleteInteraction(interactionId: string) {
 
   if (!existing) return { error: 'Interaction not found or you do not have permission to delete it' };
 
-  // Delete linked action first (belt-and-suspenders — FK cascade handles it,
-  // but explicit delete ensures sync even if the interaction_id FK ever changes)
-  await supabase.from('actions').delete().eq('interaction_id', existing.interaction_id);
+  // Delete linked action first (matching both id and interaction_id to guarantee consistency)
+  if (existing.interaction_id) {
+    await supabase.from('actions').delete().or(`interaction_id.eq.${existing.id},interaction_id.eq.${existing.interaction_id}`);
+  } else {
+    await supabase.from('actions').delete().eq('interaction_id', existing.id);
+  }
 
   const { error } = await supabase
     .from('interactions')

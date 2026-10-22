@@ -8,6 +8,7 @@ import type { Orientation, PendingSignup, Cub } from '@/lib/types';
 import { z } from 'zod';
 import { recomputeOrientationStage, autoSetDates, getNearestDateForDay } from '@/lib/utils/orientation';
 import { computeRCCategory } from '@/lib/utils/rc';
+import { enrichPendingParentNames } from '@/lib/utils/enrichSignups';
 
 // ─── Get Orientation Master Journey ─────────────────────────────
 export async function getOrientationMaster(repFilter?: string): Promise<(Orientation & {
@@ -15,6 +16,7 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
     sub_status?: string | null;
     date_onboarded?: string | null;
     cumulative_points?: number;
+    cum_term_points?: number;
     last_reading_activity?: string | null;
     reading_circle_category?: string | null;
   };
@@ -26,6 +28,15 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
   // Orientation is a whole-team responsibility — all reps see all cubs.
   // The optional repFilter is used only when an admin (or rep) explicitly filters by rep.
   const repFilterValue = repFilter && repFilter !== 'All Reps' ? repFilter : null;
+
+  // 1. Fast path: single-query RPC bypassing PostgREST pagination & 3-table nested join overhead
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_orientation_master', {
+    p_rep: repFilterValue,
+  });
+
+  if (!rpcError && rpcData) {
+    return rpcData as any;
+  }
 
   let allData: any[] = [];
   let from = 0;
@@ -89,6 +100,7 @@ export async function getOrientationMaster(repFilter?: string): Promise<(Orienta
       sub_status: row.master_cubs?.cubs?.sub_status,
       date_onboarded: row.master_cubs?.cubs?.date_onboarded ?? row.master_cubs?.date_onboarded,
       cumulative_points: row.master_cubs?.cubs?.cumulative_points ?? 0,
+      cum_term_points: row.master_cubs?.cubs?.cum_term_points ?? row.master_cubs?.cubs?.cumulative_points ?? 0,
       last_reading_activity: row.master_cubs?.cubs?.last_reading_activity,
       reading_circle_category: row.master_cubs?.cubs?.reading_circle_category,
       cub_first_name: row.master_cubs?.cub_first_name,
@@ -126,46 +138,7 @@ export async function getPendingOrientationSignups(repFilter?: string): Promise<
   let results = data as PendingSignup[];
 
   // If any signup has a phone number as parent_name or missing parent_name, enrich from master_cubs
-  const needsParentName = results.filter(
-    r => !r.parent_name || r.parent_name === r.parent_phone || /^[\d\s+\-()]{6,}$/.test(r.parent_name.trim())
-  );
-  if (needsParentName.length > 0) {
-    const cubIds = needsParentName.map(r => r.matched_cub_id).filter(Boolean) as string[];
-    const phones = needsParentName.map(r => r.parent_phone).filter(Boolean);
-
-    const parentMapByCubId = new Map<string, string>();
-    const parentMapByPhone = new Map<string, string>();
-
-    if (cubIds.length > 0) {
-      const { data: cubMatches } = await supabase
-        .from('master_cubs')
-        .select('cub_id, parent_first_name, parent_last_name')
-        .in('cub_id', cubIds);
-      (cubMatches || []).forEach(c => {
-        const fullName = `${c.parent_first_name || ''} ${c.parent_last_name || ''}`.trim();
-        if (fullName) parentMapByCubId.set(c.cub_id, fullName);
-      });
-    }
-
-    if (phones.length > 0) {
-      const { data: phoneMatches } = await supabase
-        .from('master_cubs')
-        .select('parent_phone, parent_first_name, parent_last_name')
-        .in('parent_phone', phones);
-      (phoneMatches || []).forEach(p => {
-        const fullName = `${p.parent_first_name || ''} ${p.parent_last_name || ''}`.trim();
-        if (fullName && p.parent_phone) parentMapByPhone.set(p.parent_phone, fullName);
-      });
-    }
-
-    results = results.map(r => {
-      const isBadName = !r.parent_name || r.parent_name === r.parent_phone || /^[\d\s+\-()]{6,}$/.test(r.parent_name.trim());
-      if (!isBadName) return r;
-      const resolved = (r.matched_cub_id && parentMapByCubId.get(r.matched_cub_id)) ||
-                       (r.parent_phone && parentMapByPhone.get(r.parent_phone));
-      return resolved ? { ...r, parent_name: resolved } : r;
-    });
-  }
+  results = await enrichPendingParentNames(supabase, results);
 
   if (repFilterValue) {
     const { data: cubs } = await supabase
@@ -371,30 +344,26 @@ export async function updateCubJourney(formData: z.infer<typeof UpdateJourneySch
     updatePayload.session = rawOrientationUpdates.session || null;
   }
 
-  const { data: updated, error: updateErr } = await supabase
-    .from('orientation')
-    .update(updatePayload)
-    .eq('cub_id', cub_id)
-    .eq('version_ts', version_ts)
-    .select('version_ts');
+  const stageUpdates = {
+    stage: stageResult.stage,
+    stage_status: stageResult.stage_status,
+    next_stage: stageResult.next_stage,
+    completion_date: stageResult.completion_date ?? current.completion_date ?? null,
+    rc_category: assignedRcCategory,
+  };
 
-  if (updateErr) return { error: updateErr.message };
-  if (!updated || updated.length === 0) {
-    return { error: 'Conflict: this record was modified by another user. Please refresh and try again.' };
+  const { data: rpcResult, error: rpcErr } = await supabase.rpc('update_cub_journey_atomic', {
+    p_cub_id: cub_id,
+    p_version_ts: version_ts,
+    p_orientation_updates: updatePayload,
+    p_stage_updates: stageUpdates,
+  });
+
+  if (rpcErr) return { error: rpcErr.message };
+  const atomicRes = rpcResult as { success?: boolean; conflict?: boolean; error?: string; version_ts?: number } | null;
+  if (!atomicRes?.success) {
+    return { error: atomicRes?.error || 'Conflict: this record was modified by another user. Please refresh and try again.' };
   }
-
-  // 6. Propagate to cubs table
-  const { error: cubsErr } = await supabase
-    .from('cubs')
-    .update({
-      orientation_stage: stageResult.stage,
-      orientation_stage_status: stageResult.stage_status,
-      orientation_next_stage: stageResult.next_stage,
-      orientation_completion_date: stageResult.completion_date,
-    })
-    .eq('cub_id', cub_id);
-
-  if (cubsErr) return { error: cubsErr.message };
 
   revalidatePath('/orientation');
   revalidatePath('/reading-circle');
@@ -403,7 +372,7 @@ export async function updateCubJourney(formData: z.infer<typeof UpdateJourneySch
   return {
     success: true,
     stage: stageResult,
-    version_ts: updated[0]?.version_ts ?? (version_ts + 1),
+    version_ts: atomicRes.version_ts ?? (version_ts + 1),
     rcCategory: assignedRcCategory,
     updates: updatePayload,
   };
