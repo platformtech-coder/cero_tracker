@@ -63,6 +63,9 @@ export interface Cub {
   parent_last_name?: string;
   parent_phone?: string;
   parent_email?: string;
+  preferred_language?: string;
+  alternative_contact_name?: string;
+  alternative_contact_phone?: string;
 }
 
 // ─── Families ───────────────────────────────────────────────
@@ -75,6 +78,9 @@ export interface Family {
   parent_whatsapp: string | null;
   no_cubs: number;
   relationship_owner: string;
+  preferred_language?: string | null;
+  alternative_contact_name?: string | null;
+  alternative_contact_phone?: string | null;
   schools?: string[];
   segments?: string[];
   sub_statuses?: string[];
@@ -235,3 +241,25 @@ export interface ConfigDropdown {
   sort_order: number;
   is_active: boolean;
 }
+
+// ─── Contact Edit Requests (Approval System) ─────────────────
+export interface ContactEditRequest {
+  id: number;
+  entity_type: 'cub' | 'family';
+  entity_id: string;
+  entity_name: string;
+  requester_id: string;
+  requester_name: string;
+  requester_email: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  current_data: Record<string, any>;
+  proposed_data: Record<string, any>;
+  changed_fields: string[];
+  admin_notes: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  is_read_by_requester: boolean;
+  created_at: string;
+  updated_at: string;
+}
+

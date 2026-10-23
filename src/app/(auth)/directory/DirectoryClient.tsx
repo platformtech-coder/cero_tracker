@@ -2,10 +2,13 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown, BookMarked, Loader2, Calendar } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown, BookMarked, Loader2, Calendar, Pencil, CheckCircle2, RefreshCw } from 'lucide-react';
 import type { Cub, Family, Profile, Interaction, Action } from '@/lib/types';
 import { getCubActivity, getCubsForFamily, getDirectoryCubs, getDirectoryFamilies } from '@/lib/actions/directory';
 import { getCubReadingAudit, type ReadingAuditResult } from '@/lib/actions/perbicubs-api';
+import { updateCubProfile, updateParentProfile, updateFamilyProfile, updateCubAndParentProfile } from '@/lib/actions/update-profile';
+import { submitContactEditRequest, getPendingRequestForEntity } from '@/lib/actions/edit-requests';
+import type { ContactEditRequest } from '@/lib/types';
 
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
@@ -59,8 +62,22 @@ function SubStatusBadge({ status }: { status: string }) {
 }
 
 // ─── Cub Profile Drawer ──────────────────────────────────────────
-function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
+// ─── Shared input styles for edit forms ─────────────────────────────────────
+const EDIT_INPUT: React.CSSProperties = {
+  width: '100%', padding: '0.5rem 0.75rem', borderRadius: 8,
+  border: '1px solid var(--border)', background: 'var(--bg-input)',
+  color: 'var(--text-1)', fontSize: '0.85rem', outline: 'none',
+  transition: 'border-color 0.15s',
+};
+const EDIT_LABEL: React.CSSProperties = {
+  display: 'block', fontSize: '0.7rem', fontWeight: 700,
+  color: 'var(--text-3)', textTransform: 'uppercase',
+  letterSpacing: '0.05em', marginBottom: '0.3rem',
+};
+
+function CubProfileDrawer({ cub, onClose, onUpdated }: { cub: any; onClose: () => void; onUpdated?: (updated: Partial<any>) => void }) {
   const [tab, setTab] = useState<'overview' | 'activity' | 'email' | 'reading_audit'>('overview');
+  const [isEditing, setIsEditing] = useState(false);
   const [activityTab, setActivityTab] = useState<'interactions' | 'actions'>('interactions');
   const [activity, setActivity] = useState<{ interactions: Interaction[]; actions: Action[]; email_history?: any }>({ interactions: [], actions: [] });
   const [loadingActivity, setLoadingActivity] = useState(true);
@@ -72,6 +89,76 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
   const [auditResult, setAuditResult] = useState<ReadingAuditResult | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditPending, startAuditTransition] = useTransition();
+
+  // ── Unified Edit State ──
+  const [editForm, setEditForm] = useState({
+    cub_first_name:            cub.cub_first_name            ?? '',
+    cub_last_name:             cub.cub_last_name             ?? '',
+    grade:                     cub.grade                     ?? '',
+    stream:                    cub.stream                    ?? '',
+    school_name:               cub.school_name               ?? '',
+    parent_first_name:         cub.parent_first_name         ?? '',
+    parent_last_name:          cub.parent_last_name          ?? '',
+    parent_phone:              cub.parent_phone              ?? '',
+    parent_email:              (cub.parent_email && cub.parent_email !== '-' && cub.parent_email.includes('@')) ? cub.parent_email : '',
+    preferred_language:        cub.preferred_language        ?? '',
+    alternative_contact_name:  cub.alternative_contact_name  ?? '',
+    alternative_contact_phone: cub.alternative_contact_phone ?? '',
+  });
+  const [saving, startSave] = useTransition();
+  const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [pendingReq, setPendingReq] = useState<ContactEditRequest | null>(null);
+
+  useEffect(() => {
+    if (cub?.cub_id) {
+      getPendingRequestForEntity('cub', cub.cub_id).then(setPendingReq);
+    }
+  }, [cub?.cub_id]);
+
+  const handleSave = () => {
+    setSaveResult(null);
+    startSave(async () => {
+      const res = await submitContactEditRequest({
+        entityType: 'cub',
+        entityId: cub.cub_id,
+        entityName: `${editForm.cub_first_name} ${editForm.cub_last_name}`.trim() || cub.cub_id,
+        currentData: {
+          cub_first_name: cub.cub_first_name ?? '',
+          cub_last_name: cub.cub_last_name ?? '',
+          grade: cub.grade ?? '',
+          stream: cub.stream ?? '',
+          school_name: cub.school_name ?? '',
+          parent_first_name: cub.parent_first_name ?? '',
+          parent_last_name: cub.parent_last_name ?? '',
+          parent_phone: cub.parent_phone ?? '',
+          parent_email: cub.parent_email ?? '',
+          preferred_language: cub.preferred_language ?? '',
+          alternative_contact_name: cub.alternative_contact_name ?? '',
+          alternative_contact_phone: cub.alternative_contact_phone ?? '',
+        },
+        proposedData: editForm,
+      });
+
+      if (res.success) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('cero:refresh-notifications'));
+        }
+        if (res.autoApplied) {
+          if (onUpdated) onUpdated({ ...editForm });
+          const sheetMsg = res.sheetSynced ? ' ✓ Sheet updated.' : res.sheetError ? ` (Sheet: ${res.sheetError})` : '';
+          setSaveResult({ ok: true, msg: `Saved successfully.${sheetMsg}` });
+          setTimeout(() => setIsEditing(false), 1200);
+        } else {
+          setSaveResult({ ok: true, msg: res.msg });
+          getPendingRequestForEntity('cub', cub.cub_id).then(setPendingReq);
+          setTimeout(() => setIsEditing(false), 2500);
+        }
+      } else {
+        setSaveResult({ ok: false, msg: res.error });
+      }
+    });
+  };
 
   const handleQuickPick = useCallback((type: 'week' | '30d' | '90d') => {
     const d = new Date();
@@ -127,6 +214,15 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
         <div className={sharedStyles.drawerHeader}>
           <h2 className={sharedStyles.drawerTitle}>Cub Profile</h2>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`${sharedStyles.btn} ${isEditing ? sharedStyles.btnPrimary : sharedStyles.btnOutline}`}
+              style={{ padding: '7px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+              onClick={() => { setIsEditing(prev => !prev); setSaveResult(null); }}
+              title={isEditing ? 'Cancel editing' : 'Edit profile'}
+            >
+              <Pencil size={13} /> {isEditing ? 'Cancel' : 'Edit'}
+            </button>
             <button 
               className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`} 
               style={{ padding: '8px 12px', fontSize: 12 }}
@@ -145,60 +241,272 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
         </div>
 
         <div className={sharedStyles.drawerBody}>
-          {/* Hero */}
-          <div className={sharedStyles.drawerHero}>
-            <div className={sharedStyles.drawerHeroTop}>
-              <div className={sharedStyles.drawerHeroIdentity}>
-                <div className={`${sharedStyles.profileAvatar} ${sharedStyles.cubAvatar}`}>
-                  {cub.cub_first_name?.[0]}{cub.cub_last_name?.[0]}
+          {isEditing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '0.5rem 0' }}>
+              {saveResult && (
+                <div style={{
+                  background: saveResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                  border: `1px solid ${saveResult.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  borderRadius: 8, padding: '0.75rem 1rem', fontSize: '0.82rem',
+                  color: saveResult.ok ? 'var(--green, #22c55e)' : 'var(--red, #ef4444)',
+                  display: 'flex', gap: '0.5rem', alignItems: 'center',
+                }}>
+                  {saveResult.ok ? <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> : <AlertCircle size={15} style={{ flexShrink: 0 }} />}
+                  <span>{saveResult.msg}</span>
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div className={sharedStyles.drawerHeroName}>{cub.cub_first_name} {cub.cub_last_name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.3px', marginTop: 2 }}>{cub.cub_id}</div>
-                  <div className={sharedStyles.drawerHeroMeta}>
-                    <span>{cub.school_name || '—'}</span>
-                    <span className={sharedStyles.dot}>·</span>
-                    <span>{cub.grade || '—'}</span>
-                    <span className={sharedStyles.dot}>·</span>
-                    <span>{cub.stream || '—'}</span>
-                    <span className={sharedStyles.dot}>·</span>
-                    <span>{cub.gender || '—'}</span>
+              )}
+
+              {pendingReq && (
+                <div style={{
+                  background: 'rgba(234, 179, 8, 0.08)',
+                  border: '1px solid rgba(234, 179, 8, 0.3)',
+                  borderRadius: 8, padding: '0.75rem 1rem', fontSize: '0.82rem',
+                  color: 'var(--yellow, #eab308)',
+                  display: 'flex', gap: '0.5rem', alignItems: 'center',
+                }}>
+                  <Clock size={15} style={{ flexShrink: 0 }} />
+                  <span>An edit request for this cub was submitted by <strong>{pendingReq.requester_name}</strong> and is currently awaiting Admin approval.</span>
+                </div>
+              )}
+
+              {/* Cub Information */}
+              <div className={sharedStyles.drawerSection} style={{ marginBottom: 0 }}>
+                <div className={sharedStyles.drawerSectionTitle} style={{ marginBottom: 12 }}>Cub Details</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Cub First Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.cub_first_name}
+                      onChange={e => setEditForm(prev => ({ ...prev, cub_first_name: e.target.value }))}
+                      placeholder="First Name"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Cub Last Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.cub_last_name}
+                      onChange={e => setEditForm(prev => ({ ...prev, cub_last_name: e.target.value }))}
+                      placeholder="Last Name"
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Grade</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.grade}
+                      onChange={e => setEditForm(prev => ({ ...prev, grade: e.target.value }))}
+                      placeholder="e.g. Grade 3"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Stream</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.stream}
+                      onChange={e => setEditForm(prev => ({ ...prev, stream: e.target.value }))}
+                      placeholder="e.g. Stream A"
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={EDIT_LABEL}>School Name</label>
+                  <input
+                    style={EDIT_INPUT}
+                    value={editForm.school_name}
+                    onChange={e => setEditForm(prev => ({ ...prev, school_name: e.target.value }))}
+                    placeholder="School Name"
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+
+              {/* Parent & Emergency Contact */}
+              <div className={sharedStyles.drawerSection} style={{ marginBottom: 0 }}>
+                <div className={sharedStyles.drawerSectionTitle} style={{ marginBottom: 12 }}>Parent & Emergency Contact</div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Parent First Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.parent_first_name}
+                      onChange={e => setEditForm(prev => ({ ...prev, parent_first_name: e.target.value }))}
+                      placeholder="First Name"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Parent Last Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.parent_last_name}
+                      onChange={e => setEditForm(prev => ({ ...prev, parent_last_name: e.target.value }))}
+                      placeholder="Last Name"
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Parent Phone Number</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.parent_phone}
+                      onChange={e => setEditForm(prev => ({ ...prev, parent_phone: e.target.value }))}
+                      placeholder="e.g. +233..."
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Parent Email</label>
+                    <input
+                      style={EDIT_INPUT}
+                      type="email"
+                      value={editForm.parent_email}
+                      onChange={e => setEditForm(prev => ({ ...prev, parent_email: e.target.value }))}
+                      placeholder="parent@example.com"
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <label style={EDIT_LABEL}>Preferred Mode of Language</label>
+                  <input
+                    style={EDIT_INPUT}
+                    value={editForm.preferred_language}
+                    onChange={e => setEditForm(prev => ({ ...prev, preferred_language: e.target.value }))}
+                    placeholder="e.g. English, Twi, Ga, French, etc."
+                    disabled={saving}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Alternative Contact Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.alternative_contact_name}
+                      onChange={e => setEditForm(prev => ({ ...prev, alternative_contact_name: e.target.value }))}
+                      placeholder="e.g. Uncle Kwame / Aunty Jane"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Alternative Number</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={editForm.alternative_contact_phone}
+                      onChange={e => setEditForm(prev => ({ ...prev, alternative_contact_phone: e.target.value }))}
+                      placeholder="e.g. +233..."
+                      disabled={saving}
+                    />
                   </div>
                 </div>
               </div>
-              <div className={sharedStyles.drawerHeroBadges}>
-                {cub.segment && <span className={`${sharedStyles.badge} ${sharedStyles.badgePrimary}`}>{cub.segment}</span>}
-                <SubStatusBadge status={cub.sub_status} />
-                <div className={sharedStyles.drawerHeroSubEnd}>
-                  {cub.sub_end_date ? formatDate(cub.sub_end_date) : ''}
-                </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
+                <button
+                  type="button"
+                  className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`}
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.55rem 1.4rem' }}
+                >
+                  {saving ? <Loader2 size={14} className={sharedStyles.spin} /> : <CheckCircle2 size={14} />}
+                  <span>{saving ? 'Submitting...' : 'Submit Changes'}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`${sharedStyles.btn} ${sharedStyles.btnOutline}`}
+                  onClick={() => setIsEditing(false)}
+                  disabled={saving}
+                  style={{ padding: '0.55rem 1.2rem' }}
+                >
+                  Cancel
+                </button>
               </div>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Hero */}
+              <div className={sharedStyles.drawerHero}>
+                <div className={sharedStyles.drawerHeroTop}>
+                  <div className={sharedStyles.drawerHeroIdentity}>
+                    <div className={`${sharedStyles.profileAvatar} ${sharedStyles.cubAvatar}`}>
+                      {cub.cub_first_name?.[0]}{cub.cub_last_name?.[0]}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div className={sharedStyles.drawerHeroName}>{cub.cub_first_name} {cub.cub_last_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.3px', marginTop: 2 }}>{cub.cub_id}</div>
+                      <div className={sharedStyles.drawerHeroMeta}>
+                        <span>{cub.school_name || '—'}</span>
+                        <span className={sharedStyles.dot}>·</span>
+                        <span>{cub.grade || '—'}</span>
+                        <span className={sharedStyles.dot}>·</span>
+                        <span>{cub.stream || '—'}</span>
+                        <span className={sharedStyles.dot}>·</span>
+                        <span>{cub.gender || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={sharedStyles.drawerHeroBadges}>
+                    {cub.segment && <span className={`${sharedStyles.badge} ${sharedStyles.badgePrimary}`}>{cub.segment}</span>}
+                    <SubStatusBadge status={cub.sub_status} />
+                    <div className={sharedStyles.drawerHeroSubEnd}>
+                      {cub.sub_end_date ? formatDate(cub.sub_end_date) : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-          {/* Parent Contact */}
-          <div className={sharedStyles.drawerSection}>
-            <div className={sharedStyles.drawerSectionTitle}>Parent</div>
-            <div className={sharedStyles.infoRow}>
-              <div className={sharedStyles.infoItem}><User size={13}/> <strong>{cub.parent_first_name} {cub.parent_last_name}</strong></div>
-              <div className={sharedStyles.infoItem}><Phone size={13}/> <strong>{cub.parent_phone || '—'}</strong></div>
-              <div className={sharedStyles.infoItem}><MessageCircle size={13}/> <strong>{cub.parent_whatsapp || '—'}</strong></div>
-              <div className={sharedStyles.infoItem}><Mail size={13}/> <strong>{cub.parent_email || '—'}</strong></div>
-            </div>
-          </div>
+              {/* Parent Contact */}
+              <div className={sharedStyles.drawerSection}>
+                <div className={sharedStyles.drawerSectionTitle}>Parent & Emergency Contact</div>
+                <div className={sharedStyles.infoRow} style={{ flexWrap: 'wrap', gap: '8px 16px' }}>
+                  <div className={sharedStyles.infoItem}><User size={13}/> <strong>{cub.parent_first_name} {cub.parent_last_name}</strong></div>
+                  <div className={sharedStyles.infoItem}><Phone size={13}/> <strong>{cub.parent_phone || '—'}</strong></div>
+                  <div className={sharedStyles.infoItem}><MessageCircle size={13}/> <strong>{cub.parent_whatsapp || '—'}</strong></div>
+                  <div className={sharedStyles.infoItem}><Mail size={13}/> <strong>{(cub.parent_email && cub.parent_email !== '-' && cub.parent_email.includes('@')) ? cub.parent_email : '—'}</strong></div>
+                  {cub.preferred_language && (
+                    <div className={sharedStyles.infoItem}>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>LANG:</span>
+                      <strong>{cub.preferred_language}</strong>
+                    </div>
+                  )}
+                  {cub.alternative_contact_name && (
+                    <div className={sharedStyles.infoItem}>
+                      <Phone size={13} style={{ color: 'var(--primary)' }}/>
+                      <span>Alt Contact: <strong>{cub.alternative_contact_name}</strong> {cub.alternative_contact_phone ? `(${cub.alternative_contact_phone})` : ''}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          <div className={tabStyles.tabs} style={{ marginBottom: '16px' }}>
-            <button className={`${tabStyles.tabBtn} ${tab === 'overview' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('overview')} style={{ padding: '8px 12px', fontSize: 13 }}>Overview</button>
-            <button className={`${tabStyles.tabBtn} ${tab === 'activity' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('activity')} style={{ padding: '8px 12px', fontSize: 13 }}>Activity</button>
-            <button className={`${tabStyles.tabBtn} ${tab === 'email' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('email')} style={{ padding: '8px 12px', fontSize: 13 }}>Email History</button>
-            <button
-              className={`${tabStyles.tabBtn} ${tab === 'reading_audit' ? tabStyles.tabBtnActive : ''}`}
-              onClick={() => { setTab('reading_audit'); setAuditResult(null); setAuditError(null); }}
-              style={{ padding: '8px 12px', fontSize: 13 }}
-            >
-              Reading Audit
-            </button>
-          </div>
+              <div className={tabStyles.tabs} style={{ marginBottom: '16px' }}>
+                <button className={`${tabStyles.tabBtn} ${tab === 'overview' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('overview')} style={{ padding: '8px 12px', fontSize: 13 }}>Overview</button>
+                <button className={`${tabStyles.tabBtn} ${tab === 'activity' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('activity')} style={{ padding: '8px 12px', fontSize: 13 }}>Activity</button>
+                <button className={`${tabStyles.tabBtn} ${tab === 'email' ? tabStyles.tabBtnActive : ''}`} onClick={() => setTab('email')} style={{ padding: '8px 12px', fontSize: 13 }}>Email History</button>
+                <button
+                  className={`${tabStyles.tabBtn} ${tab === 'reading_audit' ? tabStyles.tabBtnActive : ''}`}
+                  onClick={() => { setTab('reading_audit'); setAuditResult(null); setAuditError(null); }}
+                  style={{ padding: '8px 12px', fontSize: 13 }}
+                >
+                  Reading Audit
+                </button>
+              </div>
 
           {tab === 'overview' && (
             <div>
@@ -540,20 +848,83 @@ function CubProfileDrawer({ cub, onClose }: { cub: any; onClose: () => void }) {
               )}
             </div>
           )}
-        </div>
-      </div>
-    </>
+        </>
+      )}
+    </div>
+  </div>
+</>
   );
 }
 
 // ─── Family Profile Drawer ───────────────────────────────────────
-function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void }) {
+function FamilyDrawer({ family, onClose, onUpdated }: { family: any; onClose: () => void; onUpdated?: (updated: Partial<any>) => void }) {
   const [selectedCubForDrawer, setSelectedCubForDrawer] = useState<any | null>(null);
   const [activityTab, setActivityTab] = useState<'interactions' | 'actions'>('interactions');
   const [activity, setActivity] = useState<{ interactions: Interaction[]; actions: Action[]; email_history?: any }>({ interactions: [], actions: [] });
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [familyCubs, setFamilyCubs] = useState<any[]>([]);
   const [loadingCubs, setLoadingCubs] = useState(true);
+
+  // Edit Family state
+  const [isEditing, setIsEditing] = useState(false);
+  const [form, setForm] = useState({
+    parent_first_name:         family?.parent_first_name         ?? '',
+    parent_last_name:          family?.parent_last_name          ?? '',
+    parent_phone:              family?.parent_phone              ?? '',
+    parent_email:              (family?.parent_email && family.parent_email !== '-' && family.parent_email.includes('@')) ? family.parent_email : '',
+    preferred_language:        family?.preferred_language        ?? '',
+    alternative_contact_name:  family?.alternative_contact_name  ?? '',
+    alternative_contact_phone: family?.alternative_contact_phone ?? '',
+  });
+  const [saving, startSave] = useTransition();
+  const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [pendingReq, setPendingReq] = useState<ContactEditRequest | null>(null);
+
+  useEffect(() => {
+    if (family?.id) {
+      getPendingRequestForEntity('family', String(family.id)).then(setPendingReq);
+    }
+  }, [family?.id]);
+
+  const handleSave = () => {
+    setSaveResult(null);
+    startSave(async () => {
+      const res = await submitContactEditRequest({
+        entityType: 'family',
+        entityId: String(family.id),
+        entityName: `${form.parent_first_name} ${form.parent_last_name}`.trim() || 'Family Contact',
+        currentData: {
+          parent_first_name: family?.parent_first_name ?? '',
+          parent_last_name: family?.parent_last_name ?? '',
+          parent_phone: family?.parent_phone ?? '',
+          parent_email: family?.parent_email ?? '',
+          preferred_language: family?.preferred_language ?? '',
+          alternative_contact_name: family?.alternative_contact_name ?? '',
+          alternative_contact_phone: family?.alternative_contact_phone ?? '',
+        },
+        proposedData: form,
+      });
+
+      if (res.success) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('cero:refresh-notifications'));
+        }
+        if (res.autoApplied) {
+          if (onUpdated) onUpdated({ ...form });
+          const sheetMsg = res.sheetSynced ? ' ✓ Sheet updated.' : res.sheetError ? ` (Sheet: ${res.sheetError})` : '';
+          setSaveResult({ ok: true, msg: `Saved successfully.${sheetMsg}` });
+          setTimeout(() => setIsEditing(false), 1200);
+        } else {
+          setSaveResult({ ok: true, msg: res.msg });
+          getPendingRequestForEntity('family', String(family.id)).then(setPendingReq);
+          setTimeout(() => setIsEditing(false), 2500);
+        }
+      } else {
+        setSaveResult({ ok: false, msg: res.error });
+      }
+    });
+  };
 
   // Load cubs from DB for this family
   useEffect(() => {
@@ -606,10 +977,10 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
             <div className={sharedStyles.drawerHeroTop}>
               <div className={sharedStyles.drawerHeroIdentity}>
                 <div className={`${sharedStyles.profileAvatar}`} style={{ background: 'var(--green)' }}>
-                  {family.parent_first_name?.[0]}{family.parent_last_name?.[0]}
+                  {form.parent_first_name?.[0] || family.parent_first_name?.[0]}{form.parent_last_name?.[0] || family.parent_last_name?.[0]}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div className={sharedStyles.drawerHeroName}>{family.parent_first_name} {family.parent_last_name}</div>
+                  <div className={sharedStyles.drawerHeroName}>{form.parent_first_name || family.parent_first_name} {form.parent_last_name || family.parent_last_name}</div>
                   <div className={sharedStyles.drawerHeroMeta}>
                     <span>{family.no_cubs} Cub(s) Enrolled</span>
                   </div>
@@ -619,12 +990,165 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
           </div>
 
           <div className={sharedStyles.drawerSection}>
-            <div className={sharedStyles.drawerSectionTitle}>Contact Info</div>
-            <div className={sharedStyles.infoRow}>
-              <div className={sharedStyles.infoItem}><Phone size={13}/> <strong>{family.parent_phone || '—'}</strong></div>
-              <div className={sharedStyles.infoItem}><MessageCircle size={13}/> <strong>{family.parent_whatsapp || '—'}</strong></div>
-              <div className={sharedStyles.infoItem}><Mail size={13}/> <strong>{family.parent_email || '—'}</strong></div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <div className={sharedStyles.drawerSectionTitle} style={{ margin: 0 }}>Contact Info</div>
+              <button
+                type="button"
+                onClick={() => { setIsEditing(prev => !prev); setSaveResult(null); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  fontSize: '0.78rem', color: 'var(--primary)',
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  fontWeight: 600, padding: '2px 6px', borderRadius: 4
+                }}
+              >
+                <Pencil size={12} /> {isEditing ? 'Cancel' : 'Edit Contact'}
+              </button>
             </div>
+
+            {isEditing ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: 8 }}>
+                {saveResult && (
+                  <div style={{
+                    background: saveResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                    border: `1px solid ${saveResult.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                    borderRadius: 8, padding: '0.6rem 0.85rem', fontSize: '0.8rem',
+                    color: saveResult.ok ? 'var(--green, #22c55e)' : 'var(--red, #ef4444)',
+                    display: 'flex', gap: '0.5rem', alignItems: 'center',
+                  }}>
+                    {saveResult.ok ? <CheckCircle2 size={14} style={{ flexShrink: 0 }} /> : <AlertCircle size={14} style={{ flexShrink: 0 }} />}
+                    <span>{saveResult.msg}</span>
+                  </div>
+                )}
+                {pendingReq && (
+                  <div style={{
+                    background: 'rgba(234, 179, 8, 0.08)',
+                    border: '1px solid rgba(234, 179, 8, 0.3)',
+                    borderRadius: 8, padding: '0.6rem 0.85rem', fontSize: '0.8rem',
+                    color: 'var(--yellow, #eab308)', display: 'flex', gap: '0.5rem', alignItems: 'center',
+                  }}>
+                    <Clock size={14} style={{ flexShrink: 0 }} />
+                    <span>An edit request for this family was submitted by <strong>{pendingReq.requester_name}</strong> and is currently awaiting Admin approval.</span>
+                  </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>First Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={form.parent_first_name}
+                      onChange={e => setForm(prev => ({ ...prev, parent_first_name: e.target.value }))}
+                      placeholder="First Name"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Last Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={form.parent_last_name}
+                      onChange={e => setForm(prev => ({ ...prev, parent_last_name: e.target.value }))}
+                      placeholder="Last Name"
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Phone Number</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={form.parent_phone}
+                      onChange={e => setForm(prev => ({ ...prev, parent_phone: e.target.value }))}
+                      placeholder="e.g. +233..."
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Email</label>
+                    <input
+                      style={EDIT_INPUT}
+                      type="email"
+                      value={form.parent_email}
+                      onChange={e => setForm(prev => ({ ...prev, parent_email: e.target.value }))}
+                      placeholder="parent@example.com"
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label style={EDIT_LABEL}>Preferred Mode of Language</label>
+                  <input
+                    style={EDIT_INPUT}
+                    value={form.preferred_language}
+                    onChange={e => setForm(prev => ({ ...prev, preferred_language: e.target.value }))}
+                    placeholder="e.g. English, Twi, Ga, French, etc."
+                    disabled={saving}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div>
+                    <label style={EDIT_LABEL}>Alternative Contact Name</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={form.alternative_contact_name}
+                      onChange={e => setForm(prev => ({ ...prev, alternative_contact_name: e.target.value }))}
+                      placeholder="e.g. Uncle Kwame / Aunty Jane"
+                      disabled={saving}
+                    />
+                  </div>
+                  <div>
+                    <label style={EDIT_LABEL}>Alternative Number</label>
+                    <input
+                      style={EDIT_INPUT}
+                      value={form.alternative_contact_phone}
+                      onChange={e => setForm(prev => ({ ...prev, alternative_contact_phone: e.target.value }))}
+                      placeholder="e.g. +233..."
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`}
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', fontSize: '0.82rem' }}
+                  >
+                    {saving ? <Loader2 size={13} className={sharedStyles.spin} /> : <CheckCircle2 size={13} />}
+                    <span>{saving ? 'Submitting...' : 'Submit Changes'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${sharedStyles.btn} ${sharedStyles.btnOutline}`}
+                    onClick={() => setIsEditing(false)}
+                    disabled={saving}
+                    style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className={sharedStyles.infoRow} style={{ flexWrap: 'wrap', gap: '8px 16px' }}>
+                <div className={sharedStyles.infoItem}><Phone size={13}/> <strong>{family.parent_phone || '—'}</strong></div>
+                <div className={sharedStyles.infoItem}><MessageCircle size={13}/> <strong>{family.parent_whatsapp || '—'}</strong></div>
+                <div className={sharedStyles.infoItem}><Mail size={13}/> <strong>{(family.parent_email && family.parent_email !== '-' && family.parent_email.includes('@')) ? family.parent_email : '—'}</strong></div>
+                {(family.preferred_language || form.preferred_language) && (
+                  <div className={sharedStyles.infoItem}>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>LANG:</span>
+                    <strong>{form.preferred_language || family.preferred_language}</strong>
+                  </div>
+                )}
+                {(family.alternative_contact_name || form.alternative_contact_name) && (
+                  <div className={sharedStyles.infoItem}>
+                    <Phone size={13} style={{ color: 'var(--primary)' }}/>
+                    <span>Alt Contact: <strong>{form.alternative_contact_name || family.alternative_contact_name}</strong> {(form.alternative_contact_phone || family.alternative_contact_phone) ? `(${form.alternative_contact_phone || family.alternative_contact_phone})` : ''}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className={sharedStyles.drawerSectionTitle} style={{ marginTop: 24, marginBottom: 12 }}>
@@ -730,7 +1254,16 @@ function FamilyDrawer({ family, onClose }: { family: any; onClose: () => void })
         </div>
       </div>
 
-      {selectedCubForDrawer && <CubProfileDrawer cub={selectedCubForDrawer} onClose={() => setSelectedCubForDrawer(null)} />}
+      {selectedCubForDrawer && (
+        <CubProfileDrawer
+          cub={selectedCubForDrawer}
+          onClose={() => setSelectedCubForDrawer(null)}
+          onUpdated={(updated) => {
+            setSelectedCubForDrawer((prev: any) => prev ? { ...prev, ...updated } : null);
+            setFamilyCubs((prev: any[]) => prev.map((c: any) => c.cub_id === selectedCubForDrawer.cub_id ? { ...c, ...updated } : c));
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1239,8 +1772,26 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
         )
       )}
 
-      {selectedCub && <CubProfileDrawer cub={selectedCub} onClose={() => setSelectedCub(null)} />}
-      {selectedFamily && <FamilyDrawer family={selectedFamily} onClose={() => setSelectedFamily(null)} />}
+      {selectedCub && (
+        <CubProfileDrawer
+          cub={selectedCub}
+          onClose={() => setSelectedCub(null)}
+          onUpdated={(updated) => {
+            setSelectedCub((prev: any) => prev ? { ...prev, ...updated } : null);
+            setCubs((prev: any) => prev ? prev.map((c: any) => c.cub_id === selectedCub.cub_id ? { ...c, ...updated } : c) : prev);
+          }}
+        />
+      )}
+      {selectedFamily && (
+        <FamilyDrawer
+          family={selectedFamily}
+          onClose={() => setSelectedFamily(null)}
+          onUpdated={(updated) => {
+            setSelectedFamily((prev: any) => prev ? { ...prev, ...updated } : null);
+            setFamilies((prev: any) => prev ? prev.map((f: any) => f.id === selectedFamily.id ? { ...f, ...updated } : f) : prev);
+          }}
+        />
+      )}
     </div>
   );
 }

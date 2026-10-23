@@ -11,6 +11,7 @@ import { LogInteractionDrawer } from '@/components/ui/LogInteractionDrawer';
 import { useInteractionStore } from '@/lib/store';
 import { RepFilterBar } from '@/components/ui/RepFilterBar';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { NotificationBell } from '@/components/ui/NotificationBell';
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -99,6 +100,7 @@ export function AppShell({
                 </button>
               </>
             )}
+            <NotificationBell profileRole={profile.role} />
             <button
                 onClick={handleRefresh}
                 className={styles.themeToggle}

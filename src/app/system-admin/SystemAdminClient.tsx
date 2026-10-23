@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 
 import ArchivedCubsTab from "./ArchivedCubsTab";
+import ApprovalsTab from "./ApprovalsTab";
 import { toast } from "sonner";
 import {
   clearTable,
@@ -1014,17 +1015,17 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   };
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
-  const [tab, setTabState] = useState<'overview' | 'pipeline' | 'cleanup' | 'archived'>(() => {
-    return rawTab === 'pipeline' ? 'pipeline' : rawTab === 'cleanup' ? 'cleanup' : rawTab === 'archived' ? 'archived' : 'overview';
+  const [tab, setTabState] = useState<'overview' | 'pipeline' | 'cleanup' | 'archived' | 'approvals'>(() => {
+    return rawTab === 'pipeline' ? 'pipeline' : rawTab === 'cleanup' ? 'cleanup' : rawTab === 'archived' ? 'archived' : rawTab === 'approvals' ? 'approvals' : 'overview';
   });
 
   useEffect(() => {
-    if (rawTab && ['overview', 'pipeline', 'cleanup', 'archived'].includes(rawTab)) {
-      setTabState(rawTab as 'overview' | 'pipeline' | 'cleanup' | 'archived');
+    if (rawTab && ['overview', 'pipeline', 'cleanup', 'archived', 'approvals'].includes(rawTab)) {
+      setTabState(rawTab as 'overview' | 'pipeline' | 'cleanup' | 'archived' | 'approvals');
     }
   }, [rawTab]);
 
-  const setTab = useCallback((t: 'overview' | 'pipeline' | 'cleanup' | 'archived') => {
+  const setTab = useCallback((t: 'overview' | 'pipeline' | 'cleanup' | 'archived' | 'approvals') => {
     setTabState(t);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -1488,6 +1489,7 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
 
   const SIDEBAR_ITEMS = [
     { id: "overview", label: "System Overview", icon: BarChart3 },
+    { id: "approvals", label: "Edit Approvals", icon: CheckCircle2 },
     { id: "pipeline", label: "Pipeline & Sync", icon: Cloud },
     { id: "archived", label: "Archived Cubs", icon: Archive },
     { id: "cleanup", label: "Data Cleanup", icon: Trash2 },
@@ -3321,6 +3323,11 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
         {/* ══════════ ARCHIVED CUBS ══════════ */}
         {tab === "archived" && (
           <ArchivedCubsTab onRefreshOverview={refresh} />
+        )}
+
+        {/* ══════════ CONTACT EDIT APPROVALS ══════════ */}
+        {tab === "approvals" && (
+          <ApprovalsTab onRefreshOverview={refresh} />
         )}
       </div>
     </AppShell>

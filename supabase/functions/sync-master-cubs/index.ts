@@ -135,6 +135,14 @@ function computeNoSubDays(s: string | null, e: string | null): number | null {
   return d >= 0 ? d : null;
 }
 
+function cleanEmail(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const c = raw.trim().toLowerCase();
+  if (['-', '--', '.', 'none', 'n/a', 'na', 'nil', 'null', '0'].includes(c)) return null;
+  if (!c.includes('@') || !c.includes('.')) return null;
+  return c;
+}
+
 // Normalize any sheet status value to the three DB-allowed values
 function normalizeSubStatus(raw: string | null, subEnd: string | null): 'active' | 'almost expiring' | 'expired' {
   if (raw) {
@@ -249,7 +257,7 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
           school_name: safe(r, COL.school_name),
           sub_start_date: subStart, sub_end_date: subEnd, sub_status: subStatusRaw,
           parent_first_name: safe(r, COL.parent_first), parent_last_name: safe(r, COL.parent_last),
-          parent_email: safe(r, COL.parent_email), parent_phone: safe(r, COL.parent_phone),
+          parent_email: cleanEmail(safe(r, COL.parent_email)), parent_phone: safe(r, COL.parent_phone),
           parent_whatsapp: safe(r, COL.parent_whatsapp),
           segment: (['Gen. Comm','CDLS','RCS'].includes(seg ?? '')) ? seg : 'Gen. Comm',
           total_subscriptions: safeInt(r, COL.total_subs), update_history: safe(r, COL.update_history),
@@ -328,8 +336,9 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
       const subStatus = normalizeSubStatus(safe(r, COL.sub_status), subEnd);
       
       // Primary key: phone (normalized, no spaces/dashes), else email, else name
-      const normalizedPhone = phone ? phone.replace(/[^0-9+]/g,'') : null;
-      const k = normalizedPhone ?? email?.toLowerCase().trim() ?? `${first?.toLowerCase()}_${last?.toLowerCase()}`;
+      const normalizedPhone = (phone && phone.replace(/[^0-9]/g,'').length >= 7) ? phone.replace(/[^0-9+]/g,'') : null;
+      const cleanEm = cleanEmail(email);
+      const k = normalizedPhone ?? cleanEm ?? `${first?.toLowerCase()}_${last?.toLowerCase()}`;
       
       if (!k || k === '_') continue; // Skip if no identifiable parent data
       
@@ -343,7 +352,7 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
 
         fMap.set(k, {
           parent_first_name: first ?? 'Unknown', parent_last_name: last ?? '',
-          parent_phone: normalizedPhone, parent_email: email?.toLowerCase().trim() ?? null,
+          parent_phone: normalizedPhone, parent_email: cleanEm,
           parent_whatsapp: whatsapp, relationship_owner: repRaw, count: 1,
           schools, segments, sub_statuses: subStatuses,
         });
@@ -355,7 +364,7 @@ async function syncDirectory(db: any, token: string, sheetId: string, tab: strin
         if (subStatus) existing.sub_statuses.add(subStatus);
         // Update with richer data if available
         if (!existing.parent_phone && normalizedPhone) existing.parent_phone = normalizedPhone;
-        if (!existing.parent_email && email) existing.parent_email = email.toLowerCase().trim();
+        if (!existing.parent_email && cleanEm) existing.parent_email = cleanEm;
         if (!existing.parent_whatsapp && whatsapp) existing.parent_whatsapp = whatsapp;
       }
     }

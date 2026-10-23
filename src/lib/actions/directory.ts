@@ -153,20 +153,25 @@ export async function getCubActivity(cubId: string) {
   };
 }
 
+import { sanitizeEmail, sanitizePhone } from '@/lib/utils/contact';
+
 // ─── Get Cubs Belonging to a Family ────────────────────────────
 export async function getCubsForFamily(parentPhone: string | null, parentEmail: string | null): Promise<(Cub & { cub_first_name: string; cub_last_name: string })[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
+  const validPhone = sanitizePhone(parentPhone);
+  const validEmail = sanitizeEmail(parentEmail);
+
   // Find cub_ids from master_cubs that match this parent's phone or email
   let query = supabase.from('master_cubs').select('cub_id');
-  if (parentPhone && parentEmail) {
-    query = query.or(`parent_phone.eq.${parentPhone},parent_email.eq.${parentEmail.toLowerCase()}`);
-  } else if (parentPhone) {
-    query = query.eq('parent_phone', parentPhone);
-  } else if (parentEmail) {
-    query = query.eq('parent_email', parentEmail.toLowerCase());
+  if (validPhone && validEmail) {
+    query = query.or(`parent_phone.eq.${validPhone},parent_email.eq.${validEmail}`);
+  } else if (validPhone) {
+    query = query.eq('parent_phone', validPhone);
+  } else if (validEmail) {
+    query = query.eq('parent_email', validEmail);
   } else {
     return [];
   }
@@ -190,7 +195,7 @@ export async function getCubsForFamily(parentPhone: string | null, parentEmail: 
     parent_first_name: row.master_cubs?.parent_first_name ?? '',
     parent_last_name: row.master_cubs?.parent_last_name ?? '',
     parent_phone: row.master_cubs?.parent_phone ?? '',
-    parent_email: row.master_cubs?.parent_email ?? '',
+    parent_email: sanitizeEmail(row.master_cubs?.parent_email) ?? '',
     parent_whatsapp: row.master_cubs?.parent_whatsapp ?? '',
     master_cubs: undefined,
   })) as any[];
@@ -234,8 +239,8 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
 
   if (!currentMaster) return { siblings: [], parent_phone: null, parent_email: null, parent_first_name: '', parent_last_name: '' };
 
-  const phone = currentMaster.parent_phone?.trim() || null;
-  const email = currentMaster.parent_email?.toLowerCase().trim() || null;
+  const phone = sanitizePhone(currentMaster.parent_phone);
+  const email = sanitizeEmail(currentMaster.parent_email);
 
   if (!phone && !email) {
     return {
