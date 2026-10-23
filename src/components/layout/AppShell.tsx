@@ -100,7 +100,7 @@ export function AppShell({
                 </button>
               </>
             )}
-            <NotificationBell profileRole={profile.role} />
+            <NotificationBell profileRole={profile.role} isSystemAdminPortal={Boolean(customNavItems)} />
             <button
                 onClick={handleRefresh}
                 className={styles.themeToggle}

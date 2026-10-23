@@ -220,6 +220,7 @@ export interface CubSiblingsResponse {
   parent_email: string | null;
   parent_first_name: string;
   parent_last_name: string;
+  preferred_language?: string | null;
   last_engagement_date?: string | null;
   last_handled_by?: string | null;
   last_purpose?: string | null;
@@ -233,7 +234,7 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
 
   const { data: currentMaster } = await supabase
     .from('master_cubs')
-    .select('parent_phone, parent_email, parent_first_name, parent_last_name')
+    .select('parent_phone, parent_email, parent_first_name, parent_last_name, preferred_language')
     .eq('cub_id', cubId)
     .single();
 
@@ -249,6 +250,7 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
       parent_email: null,
       parent_first_name: currentMaster.parent_first_name || '',
       parent_last_name: currentMaster.parent_last_name || '',
+      preferred_language: currentMaster.preferred_language || null,
     };
   }
 
@@ -269,6 +271,8 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
   const { data: masterRows } = await mcQuery;
   const allIds = (masterRows ?? []).map((r: any) => r.cub_id).filter((id: string) => id !== cubId);
 
+  const prefLang = familyRow?.preferred_language || currentMaster.preferred_language || null;
+
   if (allIds.length === 0) {
     return {
       siblings: [],
@@ -276,6 +280,7 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
       parent_email: email,
       parent_first_name: currentMaster.parent_first_name || '',
       parent_last_name: currentMaster.parent_last_name || '',
+      preferred_language: prefLang,
       last_engagement_date: familyRow?.last_engagement_date,
       last_handled_by: familyRow?.last_handled_by,
       last_purpose: familyRow?.last_purpose,
@@ -307,6 +312,7 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
     parent_email: email,
     parent_first_name: currentMaster.parent_first_name || '',
     parent_last_name: currentMaster.parent_last_name || '',
+    preferred_language: prefLang,
     last_engagement_date: familyRow?.last_engagement_date,
     last_handled_by: familyRow?.last_handled_by,
     last_purpose: familyRow?.last_purpose,

@@ -36,6 +36,7 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
           parentFirstName: initial.parent_first_name,
           parentLastName: initial.parent_last_name,
           parentPhone: '',
+          preferredLanguage: '',
           repName: '',
           isOwnContact: true,
         }

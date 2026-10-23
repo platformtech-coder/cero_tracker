@@ -2,13 +2,14 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown, BookMarked, Loader2, Calendar, Pencil, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, User, Phone, MessageCircle, Mail, Clock, Plus, ExternalLink, Activity, AlertCircle, Baby, Users, ArrowUpDown, BookMarked, Loader2, Calendar, Pencil, CheckCircle2, RefreshCw, Globe } from 'lucide-react';
 import type { Cub, Family, Profile, Interaction, Action } from '@/lib/types';
 import { getCubActivity, getCubsForFamily, getDirectoryCubs, getDirectoryFamilies } from '@/lib/actions/directory';
 import { getCubReadingAudit, type ReadingAuditResult } from '@/lib/actions/perbicubs-api';
-import { updateCubProfile, updateParentProfile, updateFamilyProfile, updateCubAndParentProfile } from '@/lib/actions/update-profile';
+import { updateCubProfile, updateParentProfile, updateFamilyProfile, updateCubAndParentProfile, savePreferredLanguage } from '@/lib/actions/update-profile';
 import { submitContactEditRequest, getPendingRequestForEntity } from '@/lib/actions/edit-requests';
 import type { ContactEditRequest } from '@/lib/types';
+import { toast } from 'sonner';
 
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '../engagements/engagements.module.css';
@@ -383,13 +384,18 @@ function CubProfileDrawer({ cub, onClose, onUpdated }: { cub: any; onClose: () =
 
                 <div style={{ marginBottom: '0.75rem' }}>
                   <label style={EDIT_LABEL}>Preferred Mode of Language</label>
-                  <input
+                  <select
                     style={EDIT_INPUT}
                     value={editForm.preferred_language}
                     onChange={e => setEditForm(prev => ({ ...prev, preferred_language: e.target.value }))}
-                    placeholder="e.g. English, Twi, Ga, French, etc."
                     disabled={saving}
-                  />
+                  >
+                    <option value="">Select Language...</option>
+                    <option value="English">English</option>
+                    <option value="Twi">Twi</option>
+                    <option value="Ga">Ga</option>
+                    <option value="Ewe">Ewe</option>
+                  </select>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -474,18 +480,50 @@ function CubProfileDrawer({ cub, onClose, onUpdated }: { cub: any; onClose: () =
 
               {/* Parent Contact */}
               <div className={sharedStyles.drawerSection}>
-                <div className={sharedStyles.drawerSectionTitle}>Parent & Emergency Contact</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div className={sharedStyles.drawerSectionTitle} style={{ margin: 0 }}>Parent & Emergency Contact</div>
+                  {/* Vantage Point: Parent Language quick dropdown without label */}
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                    padding: '2px 6px', borderRadius: '6px',
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border)',
+                  }}>
+                    <Globe size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <select
+                      value={editForm.preferred_language || cub.preferred_language || ''}
+                      onChange={async (e) => {
+                        const newLang = e.target.value;
+                        setEditForm(prev => ({ ...prev, preferred_language: newLang }));
+                        if (cub?.cub_id) {
+                          const res = await savePreferredLanguage({ cubId: cub.cub_id, language: newLang });
+                          if (res.success) {
+                            toast.success(`Language updated to ${newLang}`);
+                            if (onUpdated) onUpdated({ preferred_language: newLang });
+                          } else {
+                            toast.error(res.error || 'Failed to update language');
+                          }
+                        }
+                      }}
+                      style={{
+                        padding: '2px 4px', border: 'none',
+                        background: 'transparent', color: 'var(--text-1)', fontSize: '11.5px', fontWeight: 600,
+                        fontFamily: 'inherit', cursor: 'pointer', outline: 'none',
+                      }}
+                    >
+                      <option value="">Language...</option>
+                      <option value="English">English</option>
+                      <option value="Twi">Twi</option>
+                      <option value="Ga">Ga</option>
+                      <option value="Ewe">Ewe</option>
+                    </select>
+                  </div>
+                </div>
                 <div className={sharedStyles.infoRow} style={{ flexWrap: 'wrap', gap: '8px 16px' }}>
                   <div className={sharedStyles.infoItem}><User size={13}/> <strong>{cub.parent_first_name} {cub.parent_last_name}</strong></div>
                   <div className={sharedStyles.infoItem}><Phone size={13}/> <strong>{cub.parent_phone || '—'}</strong></div>
                   <div className={sharedStyles.infoItem}><MessageCircle size={13}/> <strong>{cub.parent_whatsapp || '—'}</strong></div>
                   <div className={sharedStyles.infoItem}><Mail size={13}/> <strong>{(cub.parent_email && cub.parent_email !== '-' && cub.parent_email.includes('@')) ? cub.parent_email : '—'}</strong></div>
-                  {cub.preferred_language && (
-                    <div className={sharedStyles.infoItem}>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>LANG:</span>
-                      <strong>{cub.preferred_language}</strong>
-                    </div>
-                  )}
                   {cub.alternative_contact_name && (
                     <div className={sharedStyles.infoItem}>
                       <Phone size={13} style={{ color: 'var(--primary)' }}/>
@@ -969,7 +1007,18 @@ function FamilyDrawer({ family, onClose, onUpdated }: { family: any; onClose: ()
       <div className={`${sharedStyles.drawer} ${sharedStyles.drawerActive}`}>
         <div className={sharedStyles.drawerHeader}>
           <h2 className={sharedStyles.drawerTitle}>Family Profile</h2>
-          <button className={sharedStyles.drawerClose} onClick={onClose}><X size={18}/></button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`${sharedStyles.btn} ${isEditing ? sharedStyles.btnPrimary : sharedStyles.btnOutline}`}
+              style={{ padding: '7px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+              onClick={() => { setIsEditing(prev => !prev); setSaveResult(null); }}
+              title={isEditing ? 'Cancel editing' : 'Edit Contact'}
+            >
+              <Pencil size={13} /> {isEditing ? 'Cancel' : 'Edit Contact'}
+            </button>
+            <button className={sharedStyles.drawerClose} onClick={onClose}><X size={18}/></button>
+          </div>
         </div>
 
         <div className={sharedStyles.drawerBody}>
@@ -992,18 +1041,42 @@ function FamilyDrawer({ family, onClose, onUpdated }: { family: any; onClose: ()
           <div className={sharedStyles.drawerSection}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
               <div className={sharedStyles.drawerSectionTitle} style={{ margin: 0 }}>Contact Info</div>
-              <button
-                type="button"
-                onClick={() => { setIsEditing(prev => !prev); setSaveResult(null); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: '0.78rem', color: 'var(--primary)',
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  fontWeight: 600, padding: '2px 6px', borderRadius: 4
-                }}
-              >
-                <Pencil size={12} /> {isEditing ? 'Cancel' : 'Edit Contact'}
-              </button>
+              {/* Language dropdown located right where Edit Contact used to be */}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '5px',
+                padding: '2px 6px', borderRadius: '6px',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border)',
+              }}>
+                <Globe size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                <select
+                  value={form.preferred_language || family.preferred_language || ''}
+                  onChange={async (e) => {
+                    const newLang = e.target.value;
+                    setForm(prev => ({ ...prev, preferred_language: newLang }));
+                    if (family?.id) {
+                      const res = await savePreferredLanguage({ familyId: family.id, language: newLang });
+                      if (res.success) {
+                        toast.success(`Language updated to ${newLang}`);
+                        if (onUpdated) onUpdated({ preferred_language: newLang });
+                      } else {
+                        toast.error(res.error || 'Failed to update language');
+                      }
+                    }
+                  }}
+                  style={{
+                    padding: '2px 4px', border: 'none',
+                    background: 'transparent', color: 'var(--text-1)', fontSize: '11.5px', fontWeight: 600,
+                    fontFamily: 'inherit', cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  <option value="">Language...</option>
+                  <option value="English">English</option>
+                  <option value="Twi">Twi</option>
+                  <option value="Ga">Ga</option>
+                  <option value="Ewe">Ewe</option>
+                </select>
+              </div>
             </div>
 
             {isEditing ? (
@@ -1078,13 +1151,18 @@ function FamilyDrawer({ family, onClose, onUpdated }: { family: any; onClose: ()
                 </div>
                 <div>
                   <label style={EDIT_LABEL}>Preferred Mode of Language</label>
-                  <input
+                  <select
                     style={EDIT_INPUT}
                     value={form.preferred_language}
                     onChange={e => setForm(prev => ({ ...prev, preferred_language: e.target.value }))}
-                    placeholder="e.g. English, Twi, Ga, French, etc."
                     disabled={saving}
-                  />
+                  >
+                    <option value="">Select Language...</option>
+                    <option value="English">English</option>
+                    <option value="Twi">Twi</option>
+                    <option value="Ga">Ga</option>
+                    <option value="Ewe">Ewe</option>
+                  </select>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <div>
@@ -1135,12 +1213,6 @@ function FamilyDrawer({ family, onClose, onUpdated }: { family: any; onClose: ()
                 <div className={sharedStyles.infoItem}><Phone size={13}/> <strong>{family.parent_phone || '—'}</strong></div>
                 <div className={sharedStyles.infoItem}><MessageCircle size={13}/> <strong>{family.parent_whatsapp || '—'}</strong></div>
                 <div className={sharedStyles.infoItem}><Mail size={13}/> <strong>{(family.parent_email && family.parent_email !== '-' && family.parent_email.includes('@')) ? family.parent_email : '—'}</strong></div>
-                {(family.preferred_language || form.preferred_language) && (
-                  <div className={sharedStyles.infoItem}>
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>LANG:</span>
-                    <strong>{form.preferred_language || family.preferred_language}</strong>
-                  </div>
-                )}
                 {(family.alternative_contact_name || form.alternative_contact_name) && (
                   <div className={sharedStyles.infoItem}>
                     <Phone size={13} style={{ color: 'var(--primary)' }}/>
@@ -1450,7 +1522,12 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
     [searchFilteredFamilies, famFilters]
   );
 
-  const paginatedFamilies = filteredFamilies.slice((famPage - 1) * PAGE_SIZE, famPage * PAGE_SIZE);
+  const { sortedData: sortedFamilies, handleSort: handleFamiliesSort, getSortIndicator: getFamiliesSortIndicator } = useTableSort(filteredFamilies, {
+    sortableKeys: ['last_engagement_date', 'parent_first_name', 'no_cubs', 'parent_phone', 'parent_whatsapp', 'parent_email', 'last_handled_by', 'last_purpose'],
+    getSortValue: (item, key) => item[key as keyof typeof item],
+  });
+
+  const paginatedFamilies = sortedFamilies.slice((famPage - 1) * PAGE_SIZE, famPage * PAGE_SIZE);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -1702,11 +1779,14 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
             <SkeletonTable
               rows={12}
               columns={[
-                { header: 'Parent Name', width: '28%' },
-                { header: 'No. Cubs', width: '14%', align: 'center' },
-                { header: 'Phone', width: '18%' },
-                { header: 'WhatsApp', width: '18%' },
-                { header: 'Email', width: '22%' },
+                { header: 'Last Engagement', width: '13%' },
+                { header: 'Parent Name', width: '18%' },
+                { header: 'No. Cubs', width: '8%', align: 'center' },
+                { header: 'Phone', width: '13%' },
+                { header: 'WhatsApp', width: '13%' },
+                { header: 'Email', width: '15%' },
+                { header: 'Handled By', width: '12%' },
+                { header: 'Purpose', width: '18%' },
               ]}
               showSearch={true}
               showFilters={true}
@@ -1744,23 +1824,66 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
             ) : (
               <div style={{ flex: 1, overflow: 'auto' }}>
                 <table className={sharedStyles.table}>
-                  <thead>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                     <tr>
-                      <th style={{ textAlign: 'left' }}>Parent Name</th>
-                      <th>No. Cubs</th>
-                      <th>Phone</th>
-                      <th>WhatsApp</th>
-                      <th>Email</th>
+                      <th style={{ textAlign: 'left', minWidth: '130px', position: 'sticky', top: 0, zIndex: 1, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleFamiliesSort('last_engagement_date')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Last Engagement
+                          {getFamiliesSortIndicator('last_engagement_date') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ textAlign: 'left', minWidth: '180px', position: 'sticky', top: 0, zIndex: 1, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleFamiliesSort('parent_first_name')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Parent Name
+                          {getFamiliesSortIndicator('parent_first_name') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ textAlign: 'center', minWidth: '80px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleFamiliesSort('no_cubs')}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                          No. Cubs
+                          {getFamiliesSortIndicator('no_cubs') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ textAlign: 'left', minWidth: '120px' }}>Phone</th>
+                      <th style={{ textAlign: 'left', minWidth: '120px' }}>WhatsApp</th>
+                      <th style={{ textAlign: 'left', minWidth: '160px' }}>Email</th>
+                      <th style={{ textAlign: 'left', minWidth: '130px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleFamiliesSort('last_handled_by')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Handled By
+                          {getFamiliesSortIndicator('last_handled_by') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
+                      <th style={{ textAlign: 'left', minWidth: '200px', cursor: 'pointer', userSelect: 'none' }} onClick={() => handleFamiliesSort('last_purpose')}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          Purpose
+                          {getFamiliesSortIndicator('last_purpose') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedFamilies.map(fam => (
                       <tr key={fam.id} onClick={() => setSelectedFamily(fam)} style={{ cursor: 'pointer' }} className={sharedStyles.tableRowHover}>
-                        <td style={{ fontWeight: 600, textAlign: 'left' }}>{fam.parent_first_name} {fam.parent_last_name}</td>
-                        <td><span className={`${sharedStyles.badge} ${sharedStyles.badgePrimary}`}>{fam.no_cubs}</span></td>
-                        <td style={{ fontSize: '0.82rem' }}>{fam.parent_phone || '—'}</td>
-                        <td style={{ fontSize: '0.82rem' }}>{fam.parent_whatsapp || '—'}</td>
+                        <td style={{ textAlign: 'left', whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
+                          {fam.last_engagement_date ? formatDate(fam.last_engagement_date) : '—'}
+                        </td>
+                        <td style={{ fontWeight: 600, textAlign: 'left', minWidth: '180px' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                            {fam.parent_first_name} {fam.parent_last_name}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <span className={`${sharedStyles.badge} ${sharedStyles.badgePrimary}`}>{fam.no_cubs}</span>
+                        </td>
+                        <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{fam.parent_phone || '—'}</td>
+                        <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{fam.parent_whatsapp || '—'}</td>
                         <td style={{ fontSize: '0.82rem', color: 'var(--text-2)' }}>{fam.parent_email || '—'}</td>
+                        <td style={{ textAlign: 'left', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{fam.last_handled_by || '—'}</td>
+                        <td style={{ textAlign: 'left', fontSize: '0.82rem', maxWidth: '240px' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={fam.last_purpose ?? ''}>
+                            {fam.last_purpose || '—'}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

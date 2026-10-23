@@ -135,6 +135,7 @@ export async function searchCubs(query: string, searchAll = true) {
     parent_first_name,
     parent_last_name,
     parent_phone,
+    preferred_language,
     cubs ( relationship_owner )
   `;
 
@@ -208,6 +209,7 @@ function mapResults(data: any[], effectiveRepName: string | undefined, profile: 
       parentFirstName: (row.parent_first_name as string) || '',
       parentLastName: (row.parent_last_name as string) || '',
       parentPhone: (row.parent_phone as string) || '',
+      preferredLanguage: (row.preferred_language as string) || '',
       repName,
       isOwnContact,
     };
@@ -482,14 +484,18 @@ export async function editInteraction(formData: z.infer<typeof EditInteractionSc
   const parsed = EditInteractionSchema.safeParse(formData);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  // Fetch original to verify ownership and preserve date
+  const profile = await getProfile(supabase, user.id);
+  if (profile?.role !== 'admin') {
+    return { error: 'Only administrators have permission to edit interaction logs' };
+  }
+
+  // Fetch original to verify existence and preserve date
   const { data: original, error: fetchErr } = await supabase
     .from('interactions')
     .select('date, logged_by')
     .eq('id', parsed.data.id)
     .single();
   if (fetchErr || !original) return { error: 'Interaction not found' };
-  if (original.logged_by !== user.id) return { error: 'You can only edit your own interactions' };
 
   // Update the interaction (preserve original date)
   const { error: updateErr } = await supabase
@@ -707,15 +713,19 @@ export async function deleteInteraction(interactionId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
 
-  // Verify ownership before deleting
+  const profile = await getProfile(supabase, user.id);
+  if (profile?.role !== 'admin') {
+    return { error: 'Only administrators have permission to delete interaction logs' };
+  }
+
+  // Verify interaction exists
   const { data: existing } = await supabase
     .from('interactions')
     .select('id, interaction_id')
     .eq('id', interactionId)
-    .eq('logged_by', user.id)
     .single();
 
-  if (!existing) return { error: 'Interaction not found or you do not have permission to delete it' };
+  if (!existing) return { error: 'Interaction not found' };
 
   // Delete linked action first (matching both id and interaction_id to guarantee consistency)
   if (existing.interaction_id) {
@@ -727,8 +737,7 @@ export async function deleteInteraction(interactionId: string) {
   const { error } = await supabase
     .from('interactions')
     .delete()
-    .eq('id', interactionId)
-    .eq('logged_by', user.id);
+    .eq('id', interactionId);
 
   if (error) return { error: error.message };
 

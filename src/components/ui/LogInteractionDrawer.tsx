@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Clock, Loader2, Users, Calendar, AlertCircle } from 'lucide-react';
+import { X, Clock, Loader2, Users, Calendar, AlertCircle, Globe } from 'lucide-react';
 import { useInteractionStore } from '@/lib/store';
 import { getDropdowns } from '@/lib/actions/dashboard';
 import { searchCubs, submitInteraction, submitFamilyInteraction } from '@/lib/actions/engagements';
@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import styles from '@/components/ui/dashboard.module.css';
 import { AlertModal } from '@/components/ui/ConfirmModal';
 import { formatDate } from '@/lib/utils/date';
+import { savePreferredLanguage } from '@/lib/actions/update-profile';
 import type { Profile } from '@/lib/types';
 
 interface LogInteractionDrawerProps {
@@ -65,6 +66,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
+  const [preferredLanguage, setPreferredLanguage] = useState('');
 
   const fetchSiblings = async (id: string) => {
     setIsLoadingSiblings(true);
@@ -72,6 +74,9 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
       const data = await getSiblingsForCub(id);
       setSiblingsData(data);
       setSelectedSiblingIds(new Set());
+      if (data?.preferred_language) {
+        setPreferredLanguage(data.preferred_language);
+      }
     } catch {
       setSiblingsData(null);
     } finally {
@@ -119,6 +124,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     setHistory([]);
     setSiblingsData(null);
     setSelectedSiblingIds(new Set());
+    setPreferredLanguage('');
   };
 
   const handleClose = () => {
@@ -168,6 +174,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     setCubLastName(cub.cubLastName);
     setParentFirstName(cub.parentFirstName);
     setParentLastName(cub.parentLastName);
+    setPreferredLanguage(cub.preferredLanguage || '');
     setShowResults(false);
     setSearchQuery('');
     fetchHistory(cub.cubId);
@@ -285,7 +292,43 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
       >
         <div className={styles.drawerHeader}>
           <h2 className={styles.drawerTitle}>Log Interaction</h2>
-          <button className={styles.drawerClose} onClick={handleClose}><X size={18} /></button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {cubId && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: '5px',
+                padding: '2px 6px', borderRadius: '6px',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border)',
+              }}>
+                <Globe size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                <select
+                  value={preferredLanguage}
+                  onChange={async (e) => {
+                    const newLang = e.target.value;
+                    setPreferredLanguage(newLang);
+                    if (newLang && cubId) {
+                      const res = await savePreferredLanguage({ cubId, language: newLang });
+                      if (res.success) {
+                        toast.success(`Language updated to ${newLang}`);
+                      }
+                    }
+                  }}
+                  style={{
+                    padding: '2px 4px', border: 'none',
+                    background: 'transparent', color: 'var(--text-1)', fontSize: '11.5px', fontWeight: 600,
+                    fontFamily: 'inherit', cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  <option value="">Language...</option>
+                  <option value="English">English</option>
+                  <option value="Twi">Twi</option>
+                  <option value="Ga">Ga</option>
+                  <option value="Ewe">Ewe</option>
+                </select>
+              </div>
+            )}
+            <button className={styles.drawerClose} onClick={handleClose}><X size={18} /></button>
+          </div>
         </div>
         
         <div className={styles.drawerBody}>
@@ -356,6 +399,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                 <input type="text" value={cubId ? `${parentFirstName} ${parentLastName}` : ''} disabled style={{ ...inputStyle, opacity: 0.7 }} placeholder="Select from search" />
               </div>
             </div>
+
 
             {/* Siblings Panel */}
             {cubId && (

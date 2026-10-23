@@ -5,7 +5,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { getProfile } from '@/lib/supabase/getProfile';
 import { getSystemAdminSession } from '@/lib/systemAdminAuth';
 import { revalidatePath } from 'next/cache';
-import { updateCubAndParentProfile, updateFamilyProfile } from '@/lib/actions/update-profile';
+import { updateCubAndParentProfile, updateFamilyProfile, savePreferredLanguage } from '@/lib/actions/update-profile';
 import { sanitizePhone, sanitizeEmail } from '@/lib/utils/contact';
 import type { ContactEditRequest } from '@/lib/types';
 
@@ -61,7 +61,7 @@ export interface SubmitEditRequestParams {
 }
 
 export type SubmitEditRequestResult =
-  | { success: true; autoApplied: true; sheetSynced: boolean; sheetError?: string }
+  | { success: true; autoApplied: true; sheetSynced: boolean; sheetError?: string; msg?: string }
   | { success: true; autoApplied: false; requestId: number; msg: string }
   | { success: false; error: string };
 
@@ -143,7 +143,25 @@ export async function submitContactEditRequest(params: SubmitEditRequestParams):
     }
   }
 
-  // If user is a Rep: Queue request for System Admin approval
+  // If user is a Rep: Preferred language is instant and never requires approval
+  if (changedFields.includes('preferred_language') && cleanedProposed.preferred_language) {
+    await savePreferredLanguage({
+      cubId: entityType === 'cub' ? entityId : undefined,
+      familyId: entityType === 'family' ? Number(entityId) : undefined,
+      language: cleanedProposed.preferred_language,
+    });
+  }
+
+  const approvalFields = changedFields.filter(f => f !== 'preferred_language');
+  if (approvalFields.length === 0) {
+    return {
+      success: true,
+      autoApplied: true,
+      sheetSynced: true,
+      msg: 'Preferred language updated successfully.',
+    };
+  }
+
   // First, verify there is no existing pending request for this entity
   const existingPending = await getPendingRequestForEntity(entityType, entityId);
   if (existingPending) {
@@ -168,7 +186,7 @@ export async function submitContactEditRequest(params: SubmitEditRequestParams):
       status: 'pending',
       current_data: currentData,
       proposed_data: cleanedProposed,
-      changed_fields: changedFields,
+      changed_fields: approvalFields,
     })
     .select('id')
     .single();
@@ -358,78 +376,93 @@ export interface UserNotificationsResponse {
   pendingApprovalCount: number;
 }
 
-export async function getUserNotifications(): Promise<UserNotificationsResponse> {
-  const adminCtx = await getAdminContext();
-  const isAdmin = adminCtx !== null;
+export async function getUserNotifications(
+  portalScope: 'dashboard' | 'system-admin' = 'dashboard'
+): Promise<UserNotificationsResponse> {
   const db = getServiceClient();
 
-  if (isAdmin) {
-    // ─── FOR SYSTEM ADMINS ───
-    // 1. Pending requests awaiting admin decision
-    const { data: pendingRows } = await db
-      .from('contact_edit_requests')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(30);
+  // ─── 1. FOR SYSTEM ADMIN PORTAL ONLY ───
+  // Strictly requires portalScope === 'system-admin' AND a verified super_admin session
+  if (portalScope === 'system-admin') {
+    let isSuperAdmin = false;
+    try {
+      const sysSession = await getSystemAdminSession();
+      if (sysSession?.role === 'super_admin') {
+        isSuperAdmin = true;
+      }
+    } catch {
+      // not a super admin session
+    }
 
-    // 2. Recent decisions made across the organization
-    const { data: processedRows } = await db
-      .from('contact_edit_requests')
-      .select('*')
-      .in('status', ['approved', 'declined'])
-      .order('reviewed_at', { ascending: false })
-      .limit(25);
+    if (isSuperAdmin) {
+      // 1. Pending requests awaiting admin decision
+      const { data: pendingRows } = await db
+        .from('contact_edit_requests')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(30);
 
-    const pending: UserNotificationItem[] = (pendingRows || []).map((r: any) => ({
-      id: r.id,
-      entity_type: r.entity_type,
-      entity_id: r.entity_id,
-      entity_name: r.entity_name,
-      requester_name: r.requester_name,
-      requester_email: r.requester_email,
-      status: r.status,
-      changed_fields: Array.isArray(r.changed_fields) ? r.changed_fields : [],
-      current_data: r.current_data,
-      proposed_data: r.proposed_data,
-      admin_notes: r.admin_notes || `Submitted by ${r.requester_name}`,
-      reviewed_by: r.reviewed_by,
-      reviewed_at: r.reviewed_at,
-      created_at: r.created_at,
-      is_read: false,
-    }));
+      // 2. Recent decisions made across the organization
+      const { data: processedRows } = await db
+        .from('contact_edit_requests')
+        .select('*')
+        .in('status', ['approved', 'declined'])
+        .order('reviewed_at', { ascending: false })
+        .limit(25);
 
-    const processed: UserNotificationItem[] = (processedRows || []).map((r: any) => ({
-      id: r.id,
-      entity_type: r.entity_type,
-      entity_id: r.entity_id,
-      entity_name: r.entity_name,
-      requester_name: r.requester_name,
-      requester_email: r.requester_email,
-      status: r.status,
-      changed_fields: Array.isArray(r.changed_fields) ? r.changed_fields : [],
-      current_data: r.current_data,
-      proposed_data: r.proposed_data,
-      admin_notes: r.admin_notes,
-      reviewed_by: r.reviewed_by,
-      reviewed_at: r.reviewed_at,
-      created_at: r.created_at,
-      is_read: true,
-    }));
+      const pending: UserNotificationItem[] = (pendingRows || []).map((r: any) => ({
+        id: r.id,
+        entity_type: r.entity_type,
+        entity_id: r.entity_id,
+        entity_name: r.entity_name,
+        requester_name: r.requester_name,
+        requester_email: r.requester_email,
+        status: r.status,
+        changed_fields: Array.isArray(r.changed_fields) ? r.changed_fields : [],
+        current_data: r.current_data,
+        proposed_data: r.proposed_data,
+        admin_notes: r.admin_notes || `Submitted by ${r.requester_name}`,
+        reviewed_by: r.reviewed_by,
+        reviewed_at: r.reviewed_at,
+        created_at: r.created_at,
+        is_read: false,
+      }));
 
-    return {
-      isAdmin: true,
-      pending,
-      processed,
-      unreadProcessedCount: 0,
-      pendingCount: pending.length,
-      notifications: pending,
-      unreadCount: pending.length,
-      pendingApprovalCount: pending.length,
-    };
+      const processed: UserNotificationItem[] = (processedRows || []).map((r: any) => ({
+        id: r.id,
+        entity_type: r.entity_type,
+        entity_id: r.entity_id,
+        entity_name: r.entity_name,
+        requester_name: r.requester_name,
+        requester_email: r.requester_email,
+        status: r.status,
+        changed_fields: Array.isArray(r.changed_fields) ? r.changed_fields : [],
+        current_data: r.current_data,
+        proposed_data: r.proposed_data,
+        admin_notes: r.admin_notes,
+        reviewed_by: r.reviewed_by,
+        reviewed_at: r.reviewed_at,
+        created_at: r.created_at,
+        is_read: true,
+      }));
+
+      return {
+        isAdmin: true,
+        pending,
+        processed,
+        unreadProcessedCount: 0,
+        pendingCount: pending.length,
+        notifications: pending,
+        unreadCount: pending.length,
+        pendingApprovalCount: pending.length,
+      };
+    }
   }
 
-  // ─── FOR RELATIONSHIP REPS ───
+  // ─── 2. FOR MAIN DASHBOARD (REPS & IN-APP ADMINS) ───
+  // Always fetches the logged-in user's personal requests.
+  // isAdmin is ALWAYS false here so no administrative review options or links ever appear on the main dashboard!
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

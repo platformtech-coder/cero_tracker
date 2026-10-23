@@ -17,6 +17,7 @@ import {
   markNotificationsAsRead,
   type UserNotificationItem,
 } from '@/lib/actions/edit-requests';
+import { createClient } from '@/lib/supabase/client';
 import styles from './NotificationBell.module.css';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -34,14 +35,20 @@ const FIELD_LABELS: Record<string, string> = {
   alternative_contact_phone: 'Alt Number',
 };
 
-export function NotificationBell({ profileRole }: { profileRole?: string }) {
+interface NotificationBellProps {
+  profileRole?: string;
+  isSystemAdminPortal?: boolean;
+}
+
+export function NotificationBell({ profileRole, isSystemAdminPortal = false }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'processed'>('pending');
   const [pendingList, setPendingList] = useState<UserNotificationItem[]>([]);
   const [processedList, setProcessedList] = useState<UserNotificationItem[]>([]);
   const [unreadProcessedCount, setUnreadProcessedCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
-  const [isAdmin, setIsAdmin] = useState(profileRole === 'admin');
+  // isAdmin is STRICTLY false on dashboard; only true if in the system admin portal with confirmed super_admin session
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -49,28 +56,44 @@ export function NotificationBell({ profileRole }: { profileRole?: string }) {
 
   const fetchNotifs = useCallback(async () => {
     try {
-      const res = await getUserNotifications();
+      const scope = isSystemAdminPortal ? 'system-admin' : 'dashboard';
+      const res = await getUserNotifications(scope);
       setPendingList(res.pending);
       setProcessedList(res.processed);
       setUnreadProcessedCount(res.unreadProcessedCount);
       setPendingCount(res.pendingCount);
-      setIsAdmin(res.isAdmin);
+      setIsAdmin(Boolean(isSystemAdminPortal && res.isAdmin));
     } catch {
       // silently fail
     }
-  }, []);
+  }, [isSystemAdminPortal]);
 
   useEffect(() => {
     fetchNotifs();
-    const interval = setInterval(fetchNotifs, 45000);
+    // 15-second background polling fallback
+    const interval = setInterval(fetchNotifs, 15000);
 
-    // Realtime custom event listener for immediate updates
+    // In-tab custom event listener
     const handleCustomRefresh = () => fetchNotifs();
     window.addEventListener('cero:refresh-notifications', handleCustomRefresh);
+
+    // Supabase Realtime channel for instant cross-tab / cross-device notifications
+    const supabase = createClient();
+    const channel = supabase
+      .channel('cero_bell_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'contact_edit_requests' },
+        () => {
+          fetchNotifs();
+        }
+      )
+      .subscribe();
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('cero:refresh-notifications', handleCustomRefresh);
+      supabase.removeChannel(channel);
     };
   }, [fetchNotifs]);
 
@@ -85,13 +108,13 @@ export function NotificationBell({ profileRole }: { profileRole?: string }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  // When opening, if there are unread processed items, switch to 'processed' tab so rep sees them immediately
+  // When opening, if there are unread processed items on the dashboard, switch to 'processed' tab so rep sees them immediately
   const handleToggle = () => {
     const next = !open;
     setOpen(next);
     if (next) {
       fetchNotifs();
-      if (!isAdmin && unreadProcessedCount > 0) {
+      if (!isSystemAdminPortal && unreadProcessedCount > 0) {
         setActiveTab('processed');
       }
     }
@@ -135,9 +158,9 @@ export function NotificationBell({ profileRole }: { profileRole?: string }) {
   };
 
   // Badge count for bell button:
-  // - System Admin sees total pending requests needing action
-  // - Reps see unread processed items (newly approved/declined)
-  const bellBadgeCount = isAdmin ? pendingCount : unreadProcessedCount;
+  // - System Admin in /system-admin portal sees total pending requests needing action
+  // - Reps & Dashboard users see unread processed items (newly approved/declined submissions)
+  const bellBadgeCount = (isSystemAdminPortal && isAdmin) ? pendingCount : unreadProcessedCount;
 
   return (
     <div className={styles.container} ref={dropdownRef}>

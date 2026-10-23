@@ -73,6 +73,12 @@ export function useRealtimeSync() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'actions' }, triggerRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_notes' }, triggerRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rc_attendance' }, triggerRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_edit_requests' }, () => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('cero:refresh-notifications'));
+        }
+        triggerRefresh();
+      })
       .subscribe();
 
     return () => {

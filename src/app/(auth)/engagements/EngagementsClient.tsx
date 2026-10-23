@@ -98,6 +98,7 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
           parentFirstName: initial.parent_first_name,
           parentLastName: initial.parent_last_name,
           parentPhone: '',
+          preferredLanguage: '',
           repName: '',
           isOwnContact: true,
         }
@@ -916,6 +917,7 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
   profile: Profile;
   onLogNew: (i: Interaction) => void;
 }) {
+  const isAdmin = profile?.role === 'admin';
   const [interactions, setInteractions] = useState(initial);
 
   useEffect(() => {
@@ -1063,7 +1065,7 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
                       {getSortIndicator('feedback') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  <th>Action</th>
+                  {isAdmin && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1090,20 +1092,18 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
                         {int.feedback || '—'}
                       </div>
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
-                        {int.logged_by && (
-                          <>
-                            <button className={styles.iconBtn} onClick={() => { setEditingInt(int); setShowModal(true); }} title="Edit">
-                              <Edit2 size={13} />
-                            </button>
-                            <button className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => handleDelete(int.id)} title="Delete">
-                              <Trash2 size={13} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
+                    {isAdmin && (
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                          <button className={styles.iconBtn} onClick={() => { setEditingInt(int); setShowModal(true); }} title="Edit">
+                            <Edit2 size={13} />
+                          </button>
+                          <button className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => handleDelete(int.id)} title="Delete">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

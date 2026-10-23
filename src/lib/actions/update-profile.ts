@@ -467,3 +467,88 @@ export async function updateCubAndParentProfile(
     sheetError: failed.map(r => r.error).filter(Boolean).join('; ') || undefined,
   };
 }
+
+// ─── Save Preferred Language (bypasses approval queue) ──────────────────────
+// This is an instant-apply action: any rep can change the parent's preferred language
+// without going through the contact_edit_requests approval workflow.
+export async function savePreferredLanguage(
+  { cubId, familyId, language }: { cubId?: string; familyId?: number; language: string }
+): Promise<ProfileUpdateResult> {
+  const lang = language.trim();
+  if (!lang) return { success: false, error: 'Language is required' };
+  if (!cubId && !familyId) return { success: false, error: 'Either cubId or familyId is required' };
+
+  const db = getServiceClient();
+  const now = new Date().toISOString();
+
+  let allCubIds: string[] = [];
+  let oldPhone: string | null = null;
+  let oldEmail: string | null = null;
+
+  if (cubId) {
+    // Resolve parent contact from the cub to find all siblings
+    const { data: master } = await db.from('master_cubs').select('parent_phone, parent_email').eq('cub_id', cubId).single();
+    if (!master) return { success: false, error: 'Cub not found' };
+    oldPhone = sanitizePhone(master.parent_phone);
+    oldEmail = sanitizeEmail(master.parent_email);
+
+    let siblingQ = db.from('master_cubs').select('cub_id');
+    if (oldPhone && oldEmail) siblingQ = siblingQ.or(`parent_phone.eq.${oldPhone},parent_email.eq.${oldEmail}`);
+    else if (oldPhone) siblingQ = siblingQ.eq('parent_phone', oldPhone);
+    else if (oldEmail) siblingQ = siblingQ.eq('parent_email', oldEmail);
+    else siblingQ = siblingQ.eq('cub_id', cubId);
+    const { data: siblingRows } = await siblingQ;
+    allCubIds = (siblingRows ?? []).map((r: any) => r.cub_id);
+    if (!allCubIds.includes(cubId)) allCubIds.push(cubId);
+  } else if (familyId) {
+    const { data: fam } = await db.from('families').select('parent_phone, parent_email').eq('id', familyId).single();
+    if (!fam) return { success: false, error: 'Family not found' };
+    oldPhone = sanitizePhone(fam.parent_phone);
+    oldEmail = sanitizeEmail(fam.parent_email);
+
+    if (oldPhone || oldEmail) {
+      let siblingQ = db.from('master_cubs').select('cub_id');
+      if (oldPhone && oldEmail) siblingQ = siblingQ.or(`parent_phone.eq.${oldPhone},parent_email.eq.${oldEmail}`);
+      else if (oldPhone) siblingQ = siblingQ.eq('parent_phone', oldPhone);
+      else siblingQ = siblingQ.eq('parent_email', oldEmail!);
+      const { data: siblingRows } = await siblingQ;
+      allCubIds = (siblingRows ?? []).map((r: any) => r.cub_id);
+    }
+  }
+
+  // Update master_cubs
+  if (allCubIds.length > 0) {
+    await db.from('master_cubs').update({ preferred_language: lang, updated_at: now }).in('cub_id', allCubIds);
+    await db.from('cubs').update({ preferred_language: lang, updated_at: now }).in('cub_id', allCubIds);
+  }
+
+  // Update families
+  if (familyId) {
+    await db.from('families').update({ preferred_language: lang, updated_at: now }).eq('id', familyId);
+  } else if (oldPhone) {
+    await db.from('families').update({ preferred_language: lang, updated_at: now }).eq('parent_phone', oldPhone);
+  } else if (oldEmail) {
+    await db.from('families').update({ preferred_language: lang, updated_at: now }).eq('parent_email', oldEmail);
+  }
+
+  revalidatePath('/directory');
+
+  // Sync to Google Sheet for each cub
+  if (allCubIds.length > 0) {
+    const sheetFields: SheetField[] = [
+      { aliases: ['preferred mode of language', 'preferred language', 'mode of language', 'language'], value: lang },
+    ];
+    const { sheetId, tab } = await getSheetConfig(db);
+    if (sheetId) {
+      const results = await Promise.all(allCubIds.map(id => writeToSheet(sheetId, tab, id, sheetFields)));
+      const failed = results.filter(r => !r.success);
+      return {
+        success: true,
+        sheetSynced: failed.length === 0,
+        sheetError: failed.map(r => r.error).filter(Boolean).join('; ') || undefined,
+      };
+    }
+  }
+
+  return { success: true, sheetSynced: false };
+}
