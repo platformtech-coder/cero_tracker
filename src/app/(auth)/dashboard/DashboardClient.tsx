@@ -159,14 +159,21 @@ function ActionsTable({ actions }: { actions: Action[] }) {
   const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
+    const q = search.toLowerCase().trim();
     return actions.filter((a) => {
+      const cubName = `${a.cub_first_name || ''} ${a.cub_last_name || ''}`.toLowerCase();
+      const parentName = `${a.parent_first_name || ''} ${a.parent_last_name || ''}`.toLowerCase();
+      const actionText = (a.action || '').toLowerCase();
+      const handledBy = (a.handled_by || '').toLowerCase();
+      const cubId = (a.cub_id || '').toLowerCase();
+
       const matchSearch =
         !q ||
-        `${a.cub_first_name} ${a.cub_last_name}`.toLowerCase().includes(q) ||
-        `${a.parent_first_name} ${a.parent_last_name}`.toLowerCase().includes(q) ||
-        a.action.toLowerCase().includes(q) ||
-        a.handled_by.toLowerCase().includes(q);
+        cubName.includes(q) ||
+        parentName.includes(q) ||
+        actionText.includes(q) ||
+        handledBy.includes(q) ||
+        cubId.includes(q);
 
       const matchStatus =
         statusFilter === 'All' ||
@@ -181,7 +188,7 @@ function ActionsTable({ actions }: { actions: Action[] }) {
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className={styles.tableWrap}>
+    <div className={`${styles.tableWrap} ${styles.dashboardTableWrap}`}>
       <div className={styles.tableControls}>
         <div className={styles.tableControlsLeft}>
           <div style={{ position: 'relative', flex: 0 }}>
@@ -222,7 +229,7 @@ function ActionsTable({ actions }: { actions: Action[] }) {
           </div>
         </div>
       ) : (
-        <div className={sharedStyles.tableScrollBody}>
+        <div className={`${sharedStyles.tableScrollBody} ${styles.dashboardTableBody}`}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -236,7 +243,7 @@ function ActionsTable({ actions }: { actions: Action[] }) {
             </thead>
             <tbody>
               {paginated.map((action, i) => (
-                <tr key={`${action.interaction_id}-${i}`}>
+                <tr key={action.id ?? `${action.interaction_id}-${i}`}>
                   <td>
                     <div style={{ fontWeight: 600 }}>{action.cub_first_name} {action.cub_last_name}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>{action.cub_id}</div>
@@ -244,7 +251,7 @@ function ActionsTable({ actions }: { actions: Action[] }) {
                   <td>{action.parent_first_name} {action.parent_last_name}</td>
                   <td style={{ maxWidth: '220px' }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={action.action}>
-                      {action.action}
+                      {action.action || '—'}
                     </div>
                     {action.sub_status && <SubStatusBadge status={action.sub_status} />}
                   </td>
@@ -257,7 +264,7 @@ function ActionsTable({ actions }: { actions: Action[] }) {
                       isOverdue={action.overdue_status === 'Yes'}
                     />
                   </td>
-                  <td>{action.handled_by}</td>
+                  <td>{action.handled_by || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -317,11 +324,11 @@ interface DashboardClientProps {
 
 export default function DashboardClient({ stats, actions, scorecardMetrics, isAdmin, allReps, currentRep }: DashboardClientProps) {
   return (
-    <>
+    <div className={styles.dashboardContainer}>
       <StatsGrid stats={stats} />
       <OrientationScorecard metrics={scorecardMetrics} />
       <ActionsTable actions={actions} />
-    </>
+    </div>
   );
 }
 

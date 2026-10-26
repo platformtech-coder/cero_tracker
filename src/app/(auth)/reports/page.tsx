@@ -69,6 +69,15 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   // ── Only fetch data for the active tab (eliminates wasted DB queries) ──
   const allReps = isAdmin ? await getAllReps() : [];
 
+  // Fetch active interaction purposes from settings
+  const { data: purposeRows } = await supabase
+    .from('config_dropdowns')
+    .select('value')
+    .eq('category', 'purpose')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+  const allPurposes = (purposeRows ?? []).map((r: { value: string }) => r.value);
+
   let dailyActivity     = [] as Awaited<ReturnType<typeof getDailyActivityReport>>;
   let callParentsReport = emptyCallParents;
   let rcReport          = emptyRC;
@@ -98,6 +107,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
       isAdmin={isAdmin}
       currentRep={isAdmin ? (repParam ?? 'All Reps') : (effectiveRep ?? '')}
       allReps={allReps}
+      allPurposes={allPurposes}
       activeTab={tabParam}
       dateParam={dateParam}
       startParam={startParam}

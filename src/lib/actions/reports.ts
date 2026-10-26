@@ -278,15 +278,19 @@ async function getRepContext(repFilter?: string) {
 export async function getDailyActivityReport(
   repFilter?: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  purposes?: string[]
 ): Promise<DailyActivityRow[]> {
   const { supabase, targetRep } = await getRepContext(repFilter);
 
-  const { data, error } = await supabase.rpc('get_daily_activity_report', {
+  const payload: Record<string, unknown> = {
     p_rep_name: targetRep,
     p_date: startDate || new Date().toISOString().slice(0, 10),
     p_end_date: endDate || null,
-  });
+    p_purposes: (purposes && purposes.length > 0) ? purposes : null,
+  };
+
+  const { data, error } = await supabase.rpc('get_daily_activity_report', payload);
 
   if (error) throw new Error(error.message);
   return (data as DailyActivityRow[]) ?? [];
@@ -294,15 +298,25 @@ export async function getDailyActivityReport(
 
 // ─── 1b. Daily Activity — Interaction Detail ──────────────────
 export async function getDailyActivityInteractions(
-  repName: string,
-  date: string
+  repName?: string,
+  startDate?: string,
+  endDate?: string,
+  purposes?: string[]
 ): Promise<InteractionDetailRow[]> {
-  const { supabase } = await getRepContext(repName);
+  const { supabase, targetRep } = await getRepContext(repName);
 
-  const { data, error } = await supabase.rpc('get_daily_activity_interactions', {
-    p_rep_name: repName,
-    p_date: date,
-  });
+  const start = startDate || new Date().toISOString().slice(0, 10);
+  const end = endDate || start;
+
+  // Always pass p_purposes (even if null) to avoid PostgREST RPC overload ambiguity
+  const rpcPayload: Record<string, unknown> = {
+    p_rep_name: targetRep,
+    p_date: start,
+    p_end_date: end,
+    p_purposes: (purposes && purposes.length > 0) ? purposes : null,
+  };
+
+  const { data, error } = await supabase.rpc('get_daily_activity_interactions', rpcPayload);
 
   if (error) throw new Error(error.message);
   return (data as InteractionDetailRow[]) ?? [];

@@ -1450,6 +1450,17 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
     return Array.from(s).sort();
   }, [cubs]);
 
+  const allCubReps = useMemo(() => {
+    const s = new Set<string>();
+    (allReps ?? []).forEach(r => { if (r && r.trim()) s.add(r.trim()); });
+    (cubs ?? []).forEach(c => {
+      if (c.relationship_owner && c.relationship_owner.trim()) {
+        s.add(c.relationship_owner.trim());
+      }
+    });
+    return Array.from(s).sort();
+  }, [allReps, cubs]);
+
   const [cubFilters, setCubFilters] = useState<CubFilterState>(emptyCubFilterState);
   const cubFiltersActive = countCubFilters(cubFilters);
 
@@ -1475,7 +1486,7 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
   );
 
   const { sortedData: sortedCubs, handleSort: handleCubsSort, getSortIndicator: getCubsSortIndicator } = useTableSort(filteredCubs, {
-    sortableKeys: ['last_engagement_activity', 'cub_first_name', 'grade', 'stream', 'segment', 'sub_status', 'sub_end_date', 'no_sub_days', 'orientation_stage', 'orientation_stage_status', 'orientation_next_stage', 'orientation_completion_date', 'flag', 'current_streak', 'streak_label', 'current_league', 'cum_term_points', 'cumulative_points', 'cumulative_weekly_points', 'handled_by_last', 'purpose_last'],
+    sortableKeys: ['last_engagement_activity', 'cub_first_name', 'grade', 'stream', 'segment', 'sub_status', 'sub_end_date', 'no_sub_days', 'orientation_stage', 'orientation_stage_status', 'orientation_next_stage', 'orientation_completion_date', 'flag', 'current_streak', 'streak_label', 'current_league', 'cum_term_points', 'cumulative_points', 'cumulative_weekly_points', 'handled_by_last', 'purpose_last', 'relationship_owner'],
     getSortValue: (item, key) => item[key as keyof typeof item],
   });
 
@@ -1496,9 +1507,10 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
 
   const allFamilyReps = useMemo(() => {
     const s = new Set<string>();
-    (families ?? []).forEach(f => { if (f.relationship_owner) s.add(f.relationship_owner); });
+    (allReps ?? []).forEach(r => { if (r && r.trim()) s.add(r.trim()); });
+    (families ?? []).forEach(f => { if (f.relationship_owner && f.relationship_owner.trim()) s.add(f.relationship_owner.trim()); });
     return Array.from(s).sort();
-  }, [families]);
+  }, [allReps, families]);
 
   const [famFilters, setFamFilters] = useState<FamilyFilterState>(emptyFamilyFilterState);
   const famFiltersActive = countFamilyFilters(famFilters);
@@ -1572,6 +1584,7 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
                 <DirectoryCubFilter
                   allSchools={allSchools}
                   allSegments={allSegments}
+                  allReps={allCubReps}
                   value={cubFilters}
                   onChange={(next) => { setCubFilters(next); setCubPage(1); }}
                   onReset={resetCubFilters}

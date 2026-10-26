@@ -127,6 +127,12 @@
 /* ═══════════════════════════════════
    TABLE
 ═══════════════════════════════════ */
+.dashboardContainer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 .tableWrap {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -136,12 +142,27 @@
   margin-bottom: 1.5rem;
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 auto;
+}
+
+.dashboardTableWrap {
+  flex: none;
+  width: 100%;
 }
 
 .tableScrollBody {
-  flex: 1;
-  overflow: auto;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.dashboardTableBody {
+  flex: none;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: 200px;
 }
 
 .tableControls {

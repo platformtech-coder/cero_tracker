@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   BarChart2, Phone, PhoneOff, MessageSquare, AlertTriangle, CheckCircle2,
   Users, BookOpenCheck, Compass, TrendingDown, TrendingUp, Flag,
-  ChevronRight, Download, Calendar, Search, X, 
+  ChevronRight, ChevronDown, Download, Calendar, Search, X, 
   PhoneCall, AlertCircle,
 } from 'lucide-react';
 import type {
@@ -479,12 +479,64 @@ function FilterDropdownModule({
 
 // ─── Tab: Daily Activity ─────────────────────────────────────
 
-function DailyActivityTab({ data, selectedDate }: { data: DailyActivityRow[]; selectedDate: string }) {
-  const [drawer, setDrawer] = useState<{ rep: string; date: string } | null>(null);
+function DailyActivityTab({
+  data,
+  startDate,
+  endDate,
+  allPurposes,
+  repFilter,
+}: {
+  data: DailyActivityRow[];
+  startDate: string;
+  endDate: string;
+  allPurposes: string[];
+  repFilter?: string;
+}) {
+  const [drawer, setDrawer] = useState<{ rep: string; startDate: string; endDate: string } | null>(null);
   const [interactions, setInteractions] = useState<InteractionDetailRow[]>([]);
   const [loadingInteractions, setLoadingInteractions] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedPurposes, setSelectedPurposes] = useState<string[]>([]);
+  const [tableData, setTableData] = useState<DailyActivityRow[]>(data);
+  const [loadingTable, setLoadingTable] = useState(false);
 
-  const totals = data.reduce((acc, r) => ({
+  const isFirstMount = useRef(true);
+
+  // Sync tableData when parent data changes (e.g. date range changed at page level)
+  useEffect(() => {
+    if (selectedPurposes.length === 0) {
+      setTableData(data);
+    }
+  }, [data, selectedPurposes.length]);
+
+  // Re-fetch report metrics when purpose filter, dates, or repFilter change
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    let isCurrent = true;
+    setLoadingTable(true);
+    getDailyActivityReport(
+      repFilter,
+      startDate,
+      endDate,
+      selectedPurposes.length > 0 ? selectedPurposes : undefined
+    )
+      .then(rows => {
+        if (isCurrent) setTableData(rows);
+      })
+      .catch(() => {
+        if (isCurrent) setTableData([]);
+      })
+      .finally(() => {
+        if (isCurrent) setLoadingTable(false);
+      });
+
+    return () => { isCurrent = false; };
+  }, [selectedPurposes, repFilter, startDate, endDate]);
+
+  const totals = tableData.reduce((acc, r) => ({
     calls_made:         acc.calls_made + r.calls_made,
     calls_successful:   acc.calls_successful + r.calls_successful,
     calls_unsuccessful: acc.calls_unsuccessful + r.calls_unsuccessful,
@@ -492,19 +544,62 @@ function DailyActivityTab({ data, selectedDate }: { data: DailyActivityRow[]; se
     total_interactions: acc.total_interactions + r.total_interactions,
   }), { calls_made: 0, calls_successful: 0, calls_unsuccessful: 0, messages_sent: 0, total_interactions: 0 });
 
-  const handleOpenDrawer = (rep: string) => {
-    setDrawer({ rep, date: selectedDate });
+  const togglePurpose = (p: string) =>
+    setSelectedPurposes(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
+
+  const loadInteractions = useCallback((rep: string, s: string, e: string, purposes: string[]) => {
     setLoadingInteractions(true);
-    setInteractions([]);
-    getDailyActivityInteractions(rep, selectedDate)
+    getDailyActivityInteractions(rep, s, e, purposes.length > 0 ? purposes : undefined)
       .then(rows => setInteractions(rows))
       .catch(() => setInteractions([]))
       .finally(() => setLoadingInteractions(false));
+  }, []);
+
+  const handleOpenDrawer = (rep: string) => {
+    setDrawer({ rep, startDate, endDate });
+    setSearchQuery('');
+    setInteractions([]);
+    loadInteractions(rep, startDate, endDate, selectedPurposes);
   };
+
+  // Re-fetch drawer interactions if purposes are toggled while drawer is open
+  useEffect(() => {
+    if (drawer) {
+      loadInteractions(drawer.rep, drawer.startDate, drawer.endDate, selectedPurposes);
+    }
+  }, [drawer?.rep, drawer?.startDate, drawer?.endDate, selectedPurposes, loadInteractions]);
+
+  const filteredInteractions = useMemo(() => {
+    if (!searchQuery.trim()) return interactions;
+    const q = searchQuery.toLowerCase().trim();
+    return interactions.filter(item => {
+      const cubName = `${item.cub_first_name ?? ''} ${item.cub_last_name ?? ''}`.toLowerCase();
+      const cubId = (item.cub_id ?? '').toLowerCase();
+      const parentName = `${item.parent_first_name ?? ''} ${item.parent_last_name ?? ''}`.toLowerCase();
+      const handledBy = (item.handled_by ?? '').toLowerCase();
+      const purpose = (item.purpose ?? '').toLowerCase();
+      const type = (item.type ?? '').toLowerCase();
+      const status = (item.status ?? '').toLowerCase();
+      const feedback = (item.feedback ?? '').toLowerCase();
+      const action = (item.action ?? '').toLowerCase();
+
+      return (
+        cubName.includes(q) ||
+        cubId.includes(q) ||
+        parentName.includes(q) ||
+        handledBy.includes(q) ||
+        purpose.includes(q) ||
+        type.includes(q) ||
+        status.includes(q) ||
+        feedback.includes(q) ||
+        action.includes(q)
+      );
+    });
+  }, [interactions, searchQuery]);
 
   return (
     <div>
-      <div className={styles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+      <div className={styles.statsGrid} style={{ marginBottom: '1.5rem', opacity: loadingTable ? 0.6 : 1, transition: 'opacity 0.2s' }}>
         <KpiCard label="Total Calls"         value={totals.calls_made}         icon={Phone}         iconClass={styles.iconPrimary} />
         <KpiCard label="Successful (Reached)" value={totals.calls_successful}   icon={CheckCircle2}  iconClass={styles.iconGreen}  valueClass={styles.valueGreen} />
         <KpiCard label="Unsuccessful"         value={totals.calls_unsuccessful} icon={PhoneOff}      iconClass={styles.iconRed}    valueClass={styles.valueRed} />
@@ -512,32 +607,200 @@ function DailyActivityTab({ data, selectedDate }: { data: DailyActivityRow[]; se
         <KpiCard label="Total Interactions Logged" value={totals.total_interactions} icon={BarChart2} iconClass={styles.iconPrimary} />
       </div>
 
+      {/* ── Purpose Filter ──────────────────────────────────────── */}
+      {allPurposes.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+              Filter by Purpose:
+            </span>
+            {allPurposes.map(p => {
+              const active = selectedPurposes.includes(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => togglePurpose(p)}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 20,
+                    border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                    background: active ? 'var(--primary)' : 'var(--bg-card)',
+                    color: active ? '#fff' : 'var(--text-2)',
+                    fontSize: 12,
+                    fontWeight: active ? 600 : 400,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            {selectedPurposes.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedPurposes([])}
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, cursor: 'pointer', padding: '4px 0', fontWeight: 600 }}
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+          {selectedPurposes.length > 0 && (
+            <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, marginBottom: 0 }}>
+              Showing activity filtered for <strong>{selectedPurposes.join(', ')}</strong>. Click any rep row to view details.
+            </p>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button
-          onClick={() => exportCSV('daily-activity', data, ['rep','calls_made','calls_successful','calls_unsuccessful','messages_sent','total_interactions'])}
+          onClick={() => exportCSV('daily-activity', tableData, ['rep','calls_made','calls_successful','calls_unsuccessful','messages_sent','total_interactions'])}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
         >
           <Download size={13} /> Export CSV
         </button>
       </div>
 
-      <DataTable
-        onRowClick={row => handleOpenDrawer(row.rep)}
-        columns={[
-          { key: 'rep', label: 'Rep' },
-          { key: 'calls_made', label: 'Total Calls', align: 'center' },
-          { key: 'calls_successful', label: 'Reached', align: 'center', render: v => <span style={{ color: 'var(--green)', fontWeight: 600 }}>{v}</span> },
-          { key: 'calls_unsuccessful', label: 'Not Reached', align: 'center', render: v => <span style={{ color: 'var(--red)' }}>{v}</span> },
-          { key: 'messages_sent', label: 'Messages Sent', align: 'center' },
-          { key: 'total_interactions', label: 'Total Interactions', align: 'center', render: v => <span style={{ fontWeight: 600 }}>{v}</span> },
-        ]}
-        rows={data}
-      />
+      <div style={{ opacity: loadingTable ? 0.6 : 1, transition: 'opacity 0.2s' }}>
+        <DataTable
+          onRowClick={row => handleOpenDrawer(row.rep)}
+          columns={[
+            { key: 'rep', label: 'Rep' },
+            { key: 'calls_made', label: 'Total Calls', align: 'center' },
+            { key: 'calls_successful', label: 'Reached', align: 'center', render: v => <span style={{ color: 'var(--green)', fontWeight: 600 }}>{v}</span> },
+            { key: 'calls_unsuccessful', label: 'Not Reached', align: 'center', render: v => <span style={{ color: 'var(--red)' }}>{v}</span> },
+            { key: 'messages_sent', label: 'Messages Sent', align: 'center' },
+            { key: 'total_interactions', label: 'Total Interactions', align: 'center', render: v => <span style={{ fontWeight: 600 }}>{v}</span> },
+          ]}
+          rows={tableData}
+        />
+      </div>
 
-      <DetailDrawer title={`Interactions — ${drawer?.rep ?? ''}`} isOpen={!!drawer} onClose={() => setDrawer(null)}>
-        <p style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 16 }}>
-          Showing all interactions logged by <strong>{drawer?.rep}</strong> for {formatDate(drawer?.date)}.
+      <DetailDrawer
+        title={`Interactions — ${drawer?.rep ?? ''}`}
+        isOpen={!!drawer}
+        onClose={() => {
+          setDrawer(null);
+          setSearchQuery('');
+        }}
+      >
+        <p style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 12 }}>
+          Showing all interactions logged by <strong>{drawer?.rep}</strong>{' '}
+          {selectedPurposes.length > 0 && (
+            <>for <strong>{selectedPurposes.join(', ')}</strong>{' '}</>
+          )}
+          {drawer?.startDate && drawer?.endDate && drawer.startDate !== drawer.endDate
+            ? `from ${formatDate(drawer.startDate)} to ${formatDate(drawer.endDate)}`
+            : `for ${formatDate(drawer?.startDate)}`}.
         </p>
+
+        {/* Purpose Dropdown Filter inside Drawer */}
+        {allPurposes.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <label htmlFor="drawer-purpose-select" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', marginBottom: 5 }}>
+              Filter by Purpose
+            </label>
+            <div style={{ position: 'relative' }}>
+              <select
+                id="drawer-purpose-select"
+                value={selectedPurposes.length === 1 ? selectedPurposes[0] : (selectedPurposes.length > 1 ? '__multiple__' : '')}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSelectedPurposes(val && val !== '__multiple__' ? [val] : []);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 32px 8px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-input)',
+                  color: 'var(--text-1)',
+                  fontSize: 13,
+                  fontWeight: selectedPurposes.length > 0 ? 600 : 400,
+                  appearance: 'none',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="">All Purposes</option>
+                {selectedPurposes.length > 1 && (
+                  <option value="__multiple__" disabled>
+                    Multiple Selected ({selectedPurposes.length})
+                  </option>
+                )}
+                {allPurposes.map(p => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--text-3)',
+                  pointerEvents: 'none',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Search Bar */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ position: 'relative' }}>
+            <Search
+              size={14}
+              style={{
+                position: 'absolute',
+                left: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-3)',
+              }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search by cub, parent, purpose, status, notes..."
+              style={{
+                width: '100%',
+                paddingLeft: 34,
+                paddingRight: 12,
+                paddingTop: 9,
+                paddingBottom: 9,
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: '#ffffff',
+                color: 'var(--text-1)',
+                fontSize: 13,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          {searchQuery && (
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Showing {filteredInteractions.length} of {interactions.length} interactions</span>
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: 12, padding: 0 }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
 
         {loadingInteractions ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-3)' }}>
@@ -547,9 +810,13 @@ function DailyActivityTab({ data, selectedDate }: { data: DailyActivityRow[]; se
           <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
             No interactions logged for this period.
           </div>
+        ) : filteredInteractions.length === 0 ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            No interactions match &ldquo;{searchQuery}&rdquo;.
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {interactions.map(item => (
+            {filteredInteractions.map(item => (
               <div
                 key={item.id}
                 style={{
@@ -1671,6 +1938,7 @@ interface ReportsClientProps {
   isAdmin: boolean;
   currentRep: string;
   allReps: string[];
+  allPurposes?: string[];
   activeTab: string;
   dateParam?: string;
   startParam?: string;
@@ -1694,7 +1962,7 @@ interface ReportsClientProps {
 }
 
 export default function ReportsClient({
-  isAdmin, currentRep, allReps, activeTab,
+  isAdmin, currentRep, allReps, allPurposes = [], activeTab,
   dateParam, startParam, endParam,
   dailyActivity, callParentsReport, rcReport,
   orientationReport, expiryReport,
@@ -1881,7 +2149,7 @@ export default function ReportsClient({
         <ReportsTabContentSkeleton tab={currentTab} />
       ) : (
         <>
-          {currentTab === 'daily'       && (dailyData ? <DailyActivityTab data={dailyData} selectedDate={start} /> : <ReportsTabContentSkeleton tab="daily" />)}
+          {currentTab === 'daily'       && (dailyData ? <DailyActivityTab data={dailyData} startDate={start} endDate={end} allPurposes={allPurposes} repFilter={repFilter} /> : <ReportsTabContentSkeleton tab="daily" />)}
           {currentTab === 'flags'       && (flagsData ? <FlagsCallParentsTab data={flagsData} /> : <ReportsTabContentSkeleton tab="flags" />)}
           {currentTab === 'rc'          && (rcData ? <RCReportTab data={rcData} startDate={start} endDate={end} /> : <ReportsTabContentSkeleton tab="rc" />)}
           {currentTab === 'orientation' && (orientationData ? <OrientationReportTab data={orientationData} /> : <ReportsTabContentSkeleton tab="orientation" />)}

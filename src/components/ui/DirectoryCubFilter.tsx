@@ -111,6 +111,7 @@ export function applyCubFilters<T extends {
   school_name?: string | null;
   flag?: string | null;
   segment?: string | null;
+  relationship_owner?: string | null;
 }>(cubs: T[], f: CubFilterState): T[] {
   return cubs.filter(c => {
     // Sub-status
@@ -159,8 +160,8 @@ export function applyCubFilters<T extends {
 
     // Reps
     if (f.reps && f.reps.size > 0) {
-      const rep = (c as any).relationship_owner;
-      if (!rep || !f.reps.has(rep)) return false;
+      const rep = ((c as any).relationship_owner ?? '').trim();
+      if (!rep || !Array.from(f.reps).some(r => r.trim().toLowerCase() === rep.toLowerCase())) return false;
     }
 
     return true;
