@@ -286,9 +286,21 @@ export async function GET(req: NextRequest) {
 // Called by: Apps Script onRCFormSubmit / onOrientationFormSubmit relay
 // Shared secret in header: x-webhook-secret
 export async function POST(req: NextRequest) {
-  // 1. Verify shared secret
+  // 1. Verify shared secret (constant-time comparison to prevent timing oracle)
   const secret = req.headers.get('x-webhook-secret');
-  if (!secret || secret !== process.env.WEBHOOK_SECRET) {
+  const expectedSecret = process.env.WEBHOOK_SECRET;
+  const isValidSecret = (() => {
+    if (!secret || !expectedSecret) return false;
+    try {
+      const a = Buffer.from(secret);
+      const b = Buffer.from(expectedSecret);
+      if (a.length !== b.length) return false;
+      return require('crypto').timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  })();
+  if (!isValidSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
