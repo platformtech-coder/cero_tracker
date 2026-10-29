@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { executeRebuildForms } from '@/lib/actions/forms';
 import { normalisePhoneGH } from '@/lib/utils/contact';
+import { getClientIp, checkRateLimit, createRateLimitHeaders } from '@/lib/security/rateLimit';
 
 // ─── Types ─────────────────────────────────────────────────────
 interface FormPayload {
@@ -278,6 +279,20 @@ export async function GET(req: NextRequest) {
 // Called by: Apps Script onRCFormSubmit / onOrientationFormSubmit relay
 // Shared secret in header: x-webhook-secret
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  const rateLimit = checkRateLimit(ip, {
+    prefix: 'webhooks-forms',
+    limit: 60,
+    windowMs: 60 * 1000,
+  });
+
+  if (!rateLimit.success) {
+    return NextResponse.json(
+      { error: 'Too many webhook requests' },
+      { status: 429, headers: createRateLimitHeaders(rateLimit) }
+    );
+  }
+
   // 1. Verify shared secret (constant-time comparison to prevent timing oracle)
   const secret = req.headers.get('x-webhook-secret');
   const expectedSecret = process.env.WEBHOOK_SECRET;

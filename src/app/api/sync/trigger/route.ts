@@ -3,7 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 
 // ─── Manual Sync Trigger (Admin only) ─────────────────────────
 // POST /api/sync/trigger
-// Calls the Supabase Edge Function to run the sync immediately.
+// Fires the Supabase Edge Function asynchronously and returns 202 immediately.
+// Clients should poll GET /api/sync/trigger to track progress via sync_state.
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -30,26 +31,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Sync not configured (missing env vars)' }, { status: 500 });
   }
 
-  try {
-    const res = await fetch(functionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceKey}`,
-      },
-      body: '{}',
-    });
+  // Fire-and-forget: start the Edge Function call but do NOT await it.
+  // This prevents Vercel 504 Gateway Timeouts on large sync operations.
+  // The Edge Function writes its own progress into the `sync_state` table,
+  // which clients can poll via GET /api/sync/trigger.
+  fetch(functionUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${serviceKey}`,
+    },
+    body: '{}',
+  }).catch(() => {
+    // Intentional no-op: network errors from the async call are non-fatal.
+    // The sync_state table will reflect the outcome when the function completes.
+  });
 
-    const data = await res.json();
-
-    if (!res.ok) {
-      return NextResponse.json({ error: data.error ?? 'Sync failed' }, { status: 502 });
-    }
-
-    return NextResponse.json(data);
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? 'Network error calling sync function' }, { status: 500 });
-  }
+  return NextResponse.json(
+    { message: 'Sync triggered. Poll GET /api/sync/trigger for status.' },
+    { status: 202 }
+  );
 }
 
 // ─── Get Sync Status (Admin only) ─────────────────────────────
@@ -74,7 +75,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('sync_state')
-    .select('*')
+    .select('sync_type, last_synced_at, status, row_count, error_message')
     .order('sync_type');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
