@@ -1,5 +1,3 @@
-'use server';
-
 /**
  * Shared admin-session resolution helpers used by Server Actions.
  *
