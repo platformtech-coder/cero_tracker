@@ -24,7 +24,7 @@ export async function getProfiles(): Promise<Profile[]> {
 }
 
 async function queryProfiles(supabase: any) {
-  return supabase.from('profiles').select('*').order('full_name', { ascending: true });
+  return supabase.from('profiles').select('id, email, full_name, role, sheet_rep_name, created_at, updated_at').order('full_name', { ascending: true });
 }
 
 // ─── Get Config Dropdowns ──────────────────────────────────────
