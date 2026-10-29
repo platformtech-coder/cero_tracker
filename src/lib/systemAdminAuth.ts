@@ -5,7 +5,10 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 const ADMIN_COOKIE_NAME = 'system_admin_session';
 
 function getJwtSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'cero_default_dev_secret_fallback_key_2026';
+  const secret = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) {
+    throw new Error('System Admin authentication secret is not configured. Please define JWT_SECRET or SUPABASE_SERVICE_ROLE_KEY.');
+  }
   return new TextEncoder().encode(secret);
 }
 
