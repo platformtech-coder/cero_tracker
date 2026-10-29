@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { executeRebuildForms } from '@/lib/actions/forms';
+import { normalisePhoneGH } from '@/lib/utils/contact';
 
 // ─── Types ─────────────────────────────────────────────────────
 interface FormPayload {
@@ -21,16 +22,7 @@ interface MatchResult {
   match_confidence: MatchConfidence;
 }
 
-// ─── Phone normalisation ────────────────────────────────────────
-function normalisePhone(raw?: string): string {
-  if (!raw) return '';
-  const digits = raw.replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.startsWith('233')) return digits;
-  if (digits.startsWith('0')) return '233' + digits.slice(1);
-  if (digits.length === 9) return '233' + digits; // Missing country code
-  return digits;
-}
+
 
 // ─── Levenshtein Distance & Normalized Similarity ──────────────
 function levenshteinDistance(a: string, b: string): number {
@@ -167,7 +159,7 @@ async function autoMatch(
   supabase: any,
   payload: FormPayload
 ): Promise<MatchResult> {
-  const phone = normalisePhone(payload.parent_phone);
+  const phone = normalisePhoneGH(payload.parent_phone);
 
   // 1. Check Library Card (if provided)
   if (payload.library_card) {
@@ -179,7 +171,7 @@ async function autoMatch(
       .maybeSingle();
 
     if (byCard) {
-      const cardPhone = normalisePhone(byCard.parent_phone);
+      const cardPhone = normalisePhoneGH(byCard.parent_phone);
       const nameScore = computeNameMatchScore(
         payload.cub_name,
         byCard.cub_first_name,
@@ -350,7 +342,7 @@ export async function POST(req: NextRequest) {
   const match = await autoMatch(supabase, payload);
 
   // 5. Normalise phone
-  const normalisedPhone = normalisePhone(payload.parent_phone);
+  const normalisedPhone = normalisePhoneGH(payload.parent_phone);
 
   // 6. Resolve parent_name if missing or mistakenly sent as phone digits
   let cleanParentName = (payload.parent_name || '').trim();

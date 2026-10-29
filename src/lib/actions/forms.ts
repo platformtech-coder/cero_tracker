@@ -1,11 +1,11 @@
 'use server';
 
 import { revalidatePath, updateTag } from 'next/cache';
-import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
 import { getProfile } from '@/lib/supabase/getProfile';
 import { google } from 'googleapis';
 import { getSystemAdminSession } from '@/lib/systemAdminAuth';
+import { requireAdminOrSuperAdmin as _requireAdminOrSuperAdmin, getServiceClient } from '@/lib/auth/getAdminSession';
 import type { SessionConfig, FormsConfig } from '@/lib/constants/forms';
 import {
   KNOWN_ORI_SESSION_ITEM_ID,
@@ -17,12 +17,6 @@ import {
 } from '@/lib/constants/forms';
 
 // ─── Helpers ──────────────────────────────────────────────────
-function getServiceClient() {
-  return createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-}
 
 async function requireSuperAdmin() {
   const session = await getSystemAdminSession();
@@ -33,22 +27,9 @@ async function requireSuperAdmin() {
 /**
  * Accepts either a system-admin JWT session OR a logged-in dashboard admin.
  * Returns a display email/identifier for audit purposes.
+ * Delegates to the canonical shared helper in src/lib/auth/getAdminSession.ts.
  */
-async function requireAdminOrSuperAdmin(): Promise<string> {
-  // 1. Try system-admin session first (JWT cookie)
-  const sysSession = await getSystemAdminSession();
-  if (sysSession) return sysSession.email;
-
-  // 2. Fall back to Supabase auth admin
-  const supabase = await createSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Unauthorized');
-
-  const profile = await getProfile(supabase, user.id);
-
-  if (profile?.role !== 'admin') throw new Error('Forbidden - Admin only');
-  return profile.email ?? user.email ?? user.id;
-}
+const requireAdminOrSuperAdmin = _requireAdminOrSuperAdmin;
 
 function getGoogleAuth() {
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {

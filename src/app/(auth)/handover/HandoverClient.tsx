@@ -6,6 +6,7 @@ import { PlusCircle, ChevronLeft, ChevronRight, RefreshCw, X, Edit2, Trash2, Ale
 import type { HandoverNote, Profile } from '@/lib/types';
 import { submitHandoverNote, updateHandoverNote, deleteHandoverNote } from '@/lib/actions/handover';
 import sharedStyles from '@/components/ui/dashboard.module.css';
+import { Pagination } from '@/components/ui/Pagination';
 import tabStyles from '../engagements/engagements.module.css';
 import { formatDate, formatDateTime, formatTime } from '@/lib/utils/date';
 import { toast } from 'sonner';
@@ -18,25 +19,6 @@ interface Props {
   profile: Profile;
 }
 
-function Pagination({ page, total, pageSize, onChange }: {
-  page: number; total: number; pageSize: number; onChange: (p: number) => void;
-}) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (totalPages <= 1) return null;
-  const pages: number[] = [];
-  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
-  for (let i = start; i <= Math.min(totalPages, start + 4); i++) pages.push(i);
-  return (
-    <div className={sharedStyles.pagination}>
-      <span>Page {page} of {totalPages} — {total} notes</span>
-      <div className={sharedStyles.paginationBtns}>
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.max(1, page - 1))} disabled={page === 1}><ChevronLeft size={14} /></button>
-        {pages.map(p => <button key={p} className={`${sharedStyles.pageBtn} ${p === page ? sharedStyles.pageBtnActive : ''}`} onClick={() => onChange(p)}>{p}</button>)}
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page === totalPages}><ChevronRight size={14} /></button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Note Detail / Edit Drawer ───────────────────────────────────────────────
 function NoteDrawer({

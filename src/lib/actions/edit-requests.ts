@@ -8,49 +8,10 @@ import { revalidatePath } from 'next/cache';
 import { updateCubAndParentProfile, updateFamilyProfile, savePreferredLanguage } from '@/lib/actions/update-profile';
 import { sanitizePhone, sanitizeEmail } from '@/lib/utils/contact';
 import type { ContactEditRequest } from '@/lib/types';
+import { getAdminContext, getServiceClient } from '@/lib/auth/getAdminSession';
 
-// ─── Unified Admin Context ────────────────────────────────────────────────────
-// Checks system_admin_session JWT first (for /system-admin portal), then falls
-// back to supabase.auth.getUser() + profile.role === 'admin' (for in-app admins).
-async function getAdminContext(): Promise<{ isAdmin: true; name: string; userId?: string } | null> {
-  // 1. Check System Admin JWT session (cookie-based, no Supabase Auth)
-  try {
-    const sysSession = await getSystemAdminSession();
-    if (sysSession?.role === 'super_admin') {
-      return { isAdmin: true, name: sysSession.name || 'System Administrator' };
-    }
-  } catch {
-    // ignore and fall through
-  }
+// getAdminContext and getServiceClient are imported from '@/lib/auth/getAdminSession' above.
 
-  // 2. Fall back to Supabase Auth user + profile role check
-  try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const profile = await getProfile(supabase, user.id);
-      if (profile?.role === 'admin') {
-        return {
-          isAdmin: true,
-          name: profile.full_name || profile.sheet_rep_name || user.email || 'Administrator',
-          userId: user.id,
-        };
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
-}
-
-function getServiceClient() {
-  return createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
 
 export interface SubmitEditRequestParams {
   entityType: 'cub' | 'family';

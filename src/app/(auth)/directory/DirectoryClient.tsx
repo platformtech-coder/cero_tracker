@@ -32,36 +32,10 @@ import {
 } from '@/components/ui/DirectoryFamilyFilter';
 import { Skeleton, SkeletonActivityTimeline, SkeletonTable } from '@/components/ui/Skeleton';
 import CubProfileDrawer from '@/components/drawers/CubProfileDrawer';
+import { Pagination } from '@/components/ui/Pagination';
+import { SubStatusBadge } from '@/components/ui/SubStatusBadge';
 
 const PAGE_SIZE = 25;
-
-function Pagination({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (totalPages <= 1) return null;
-  const pages: number[] = [];
-  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
-  for (let i = start; i <= Math.min(totalPages, start + 4); i++) pages.push(i);
-  return (
-    <div className={sharedStyles.pagination}>
-      <span>Page {page} of {totalPages} — {total} entries</span>
-      <div className={sharedStyles.paginationBtns}>
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.max(1, page - 1))} disabled={page === 1}><ChevronLeft size={14} /></button>
-        {pages.map(p => (
-          <button key={p} className={`${sharedStyles.pageBtn} ${p === page ? sharedStyles.pageBtnActive : ''}`} onClick={() => onChange(p)}>{p}</button>
-        ))}
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page === totalPages}><ChevronRight size={14} /></button>
-      </div>
-    </div>
-  );
-}
-
-function SubStatusBadge({ status }: { status: string }) {
-  const cls = status === 'active' ? sharedStyles.badgeGreen
-    : status === 'expired' ? sharedStyles.badgeRed
-    : sharedStyles.badgeOrange;
-  const displayStatus = status.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  return <span className={`${sharedStyles.badge} ${cls}`}>{displayStatus}</span>;
-}
 
 // ─── Cub Profile Drawer ──────────────────────────────────────────
 // ─── Shared input styles for edit forms ─────────────────────────────────────

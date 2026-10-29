@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import tabStyles from '@/app/(auth)/engagements/engagements.module.css';
+import { SubStatusBadge } from '@/components/ui/SubStatusBadge';
 
 const EDIT_INPUT: React.CSSProperties = {
   width: '100%', padding: '0.5rem 0.75rem', borderRadius: 8,
@@ -30,13 +31,6 @@ const EDIT_LABEL: React.CSSProperties = {
   letterSpacing: '0.05em', marginBottom: '0.3rem',
 };
 
-function SubStatusBadge({ status }: { status: string }) {
-  const cls = status === 'active' ? sharedStyles.badgeGreen
-    : status === 'expired' ? sharedStyles.badgeRed
-    : sharedStyles.badgeOrange;
-  const displayStatus = (status || '').split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  return <span className={`${sharedStyles.badge} ${cls}`}>{displayStatus}</span>;
-}
 
 export interface CubProfileDrawerProps {
   cub?: any;

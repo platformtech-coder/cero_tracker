@@ -30,6 +30,7 @@ import tabStyles from '../engagements/engagements.module.css';
 import { formatDate, formatDateTime } from '@/lib/utils/date';
 import { toast } from 'sonner';
 import { useTableSort } from '@/hooks/useTableSort';
+import { Pagination } from '@/components/ui/Pagination';
 
 const PAGE_SIZE = 20;
 
@@ -45,25 +46,6 @@ export type OrientationMasterItem = Orientation & {
   };
 };
 
-function Pagination({ page, total, pageSize, onChange }: {
-  page: number; total: number; pageSize: number; onChange: (p: number) => void;
-}) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (totalPages <= 1) return null;
-  const pages: number[] = [];
-  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
-  for (let i = start; i <= Math.min(totalPages, start + 4); i++) pages.push(i);
-  return (
-    <div className={sharedStyles.pagination}>
-      <span>Page {page} of {totalPages} — {total} rows</span>
-      <div className={sharedStyles.paginationBtns}>
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.max(1, page - 1))} disabled={page === 1}><ChevronLeft size={14} /></button>
-        {pages.map(p => <button key={p} className={`${sharedStyles.pageBtn} ${p === page ? sharedStyles.pageBtnActive : ''}`} onClick={() => onChange(p)}>{p}</button>)}
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page === totalPages}><ChevronRight size={14} /></button>
-      </div>
-    </div>
-  );
-}
 
 export const STANDARDIZED_ORIENTATION_STAGES = ['Invited', 'Booked', 'Attended', 'RC Selected', 'Completed'] as const;
 export const STANDARDIZED_ORIENTATION_STATUSES = ['Completed', 'Pending'] as const;

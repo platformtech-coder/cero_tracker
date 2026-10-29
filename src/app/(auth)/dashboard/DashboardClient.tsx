@@ -8,16 +8,9 @@ import type { OrientationScorecardMetrics } from '@/lib/actions/orientation';
 import styles from '@/components/ui/dashboard.module.css';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import { formatDate } from '@/lib/utils/date';
+import { SubStatusBadge } from '@/components/ui/SubStatusBadge';
 
 
-
-function SubStatusBadge({ status }: { status: string }) {
-  const cls =
-    status === 'active' ? styles.badgeGreen
-    : status === 'expired' ? styles.badgeRed
-    : styles.badgeOrange;
-  return <span className={`${styles.badge} ${cls}`}>{status}</span>;
-}
 
 function ActionStatusBadge({ status, isOverdue }: { status: string; isOverdue: boolean }) {
   if (isOverdue || status === 'Overdue')

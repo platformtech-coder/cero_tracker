@@ -18,6 +18,7 @@ import type { CubSearchResult } from '@/lib/actions/engagements';
 import { toast } from 'sonner';
 
 import sharedStyles from '@/components/ui/dashboard.module.css';
+import { Pagination } from '@/components/ui/Pagination';
 import styles from './engagements.module.css';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { useTableSort } from '@/hooks/useTableSort';
@@ -48,27 +49,6 @@ function ActionStatusBadge({ status, isOverdue }: { status: string; isOverdue: b
   return <span className={`${sharedStyles.badge} ${sharedStyles.badgeOrange}`}><Clock size={10} /> {status || 'Pending'}</span>;
 }
 
-function Pagination({ page, total, pageSize, onChange }: { page: number; total: number; pageSize: number; onChange: (p: number) => void }) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (totalPages <= 1) return null;
-
-  const pages: number[] = [];
-  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
-  for (let i = start; i <= Math.min(totalPages, start + 4); i++) pages.push(i);
-
-  return (
-    <div className={sharedStyles.pagination}>
-      <span>Page {page} of {totalPages} — {total} rows</span>
-      <div className={sharedStyles.paginationBtns}>
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.max(1, page - 1))} disabled={page === 1}><ChevronLeft size={14} /></button>
-        {pages.map(p => (
-          <button key={p} className={`${sharedStyles.pageBtn} ${p === page ? sharedStyles.pageBtnActive : ''}`} onClick={() => onChange(p)}>{p}</button>
-        ))}
-        <button className={sharedStyles.pageBtn} onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page === totalPages}><ChevronRight size={14} /></button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Log / Edit Interaction Modal ──────────────────────────────
 interface ModalProps {
