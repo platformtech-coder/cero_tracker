@@ -10,7 +10,6 @@ import {
   createUser,
   deleteUser,
   updateUserProfile,
-  getUserPlainPassword,
 } from '@/lib/actions/settings';
 import { saveFormsConfig, saveFormsPartialConfig, rebuildForms } from '@/lib/actions/forms';
 import type { FormsConfig, SessionConfig, GradeMappingEntry } from '@/lib/constants/forms';
@@ -482,7 +481,6 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
   const [newSheetRepName, setNewSheetRepName] = useState<string>('');
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isFetchingPassword, setIsFetchingPassword] = useState(false);
 
   // Confirmation modals
   const [confirmState, setConfirmState] = useState<{
@@ -509,7 +507,6 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
     setEditingUser(null);
     setIsDrawerOpen(false);
     setShowPassword(false);
-    setIsFetchingPassword(false);
   };
 
   const openAddUserDrawer = () => {
@@ -517,22 +514,15 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
     setIsDrawerOpen(true);
   };
 
-  const openEditUserDrawer = async (user: Profile) => {
+  const openEditUserDrawer = (user: Profile) => {
     setEditingUser(user);
     setNewEmail(user.email);
     setNewFullName(user.full_name);
     setNewRole(user.role);
     setNewSheetRepName(user.sheet_rep_name ?? '');
-    setNewPassword(''); // Start blank, fetch from server
+    setNewPassword(''); // Blank by default; entering a value updates the password
     setShowPassword(false);
     setIsDrawerOpen(true);
-    // Fetch the current stored plain password
-    setIsFetchingPassword(true);
-    const res = await getUserPlainPassword(user.id);
-    setIsFetchingPassword(false);
-    if ('password' in res && res.password) {
-      setNewPassword(res.password);
-    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -1020,19 +1010,18 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-2)', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    {editingUser ? 'Password (current or new)' : 'Password *'}
+                    {editingUser ? 'Password (leave blank to keep unchanged)' : 'Password *'}
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input 
                       type={showPassword ? 'text' : 'password'}
                       value={newPassword} 
                       onChange={e => setNewPassword(e.target.value)} 
-                      placeholder={editingUser ? (isFetchingPassword ? 'Loading...' : 'Enter password') : 'Min. 6 characters'} 
+                      placeholder={editingUser ? 'Leave blank to keep unchanged' : 'Min. 6 characters'} 
                       className={sharedStyles.formInput}
                       style={{ paddingRight: '2.75rem' }}
                       minLength={editingUser ? 0 : 6}
                       required={!editingUser}
-                      disabled={isFetchingPassword}
                     />
                     <button
                       type="button"
@@ -1051,7 +1040,7 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
                   </div>
                   {editingUser && (
                     <p style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
-                      {isFetchingPassword ? 'Fetching current password…' : 'Showing current password. Change it here to update.'}
+                      Leave blank to keep current password, or enter a new one to update.
                     </p>
                   )}
                 </div>

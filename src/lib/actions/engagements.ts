@@ -51,17 +51,46 @@ export async function getInteractions(repFilter?: string): Promise<Interaction[]
     const repUserId = repUser?.id;
 
     if (ownedCubIds.length > 150) {
-      // Avoid URI Too Long error by fetching and filtering in JS for admins
-      const { data, error } = await query;
-      if (error) throw new Error(error.message);
-      const allInteractions = (data as Interaction[]) ?? [];
-      return allInteractions.filter(i => ownedCubIds.includes(i.cub_id) || i.logged_by === repUserId);
+      // B4-03: Chunked parameterized queries avoiding both PostgREST 414 URI length and heap blowup
+      const CHUNK_SIZE = 100;
+      const results: Interaction[] = [];
+      for (let i = 0; i < ownedCubIds.length; i += CHUNK_SIZE) {
+        const slice = ownedCubIds.slice(i, i + CHUNK_SIZE);
+        const { data: chunkData } = await supabase
+          .from('interactions')
+          .select('*')
+          .in('cub_id', slice)
+          .order('date', { ascending: false })
+          .limit(500);
+        if (chunkData) results.push(...(chunkData as Interaction[]));
+      }
+      if (repUserId) {
+        const { data: repData } = await supabase
+          .from('interactions')
+          .select('*')
+          .eq('logged_by', repUserId)
+          .order('date', { ascending: false })
+          .limit(500);
+        if (repData) results.push(...(repData as Interaction[]));
+      }
+      const seen = new Set<string>();
+      return results
+        .filter(item => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        })
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 1000);
     } else if (ownedCubIds.length > 0) {
       query = query.or(`cub_id.in.(${ownedCubIds.map(id => `"${id}"`).join(',')}),logged_by.eq.${repUserId}`);
     } else {
       query = query.eq('logged_by', repUserId);
     }
   }
+
+  // Safe boundary to prevent unbounded heap growth
+  query = query.limit(1000);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -249,72 +278,90 @@ export async function submitInteraction(formData: InteractionFormData) {
   const parsed = InteractionSchema.safeParse(formData);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  const { data: interaction, error: intError } = await supabase
-    .from('interactions')
-    .insert({
+  // 1. B4-02: Atomic RPC transaction procedure
+  const { data: atomicData, error: atomicError } = await supabase.rpc('log_interaction_atomic', {
+    p_interaction: {
       ...parsed.data,
       message_sent: parsed.data.message_sent || null,
-      logged_by: user.id,
       date: parsed.data.date || new Date().toISOString(),
-    })
-    .select()
-    .single();
+    },
+    p_logged_by: user.id,
+  });
 
-  if (intError) return { error: intError.message };
+  let interaction: any = null;
 
-  // If action required, create action row
-  if (parsed.data.action_required === 'Yes' && parsed.data.action) {
-    const { error: actionError } = await supabase.from('actions').insert({
-      interaction_id: interaction.id,
-      date: interaction.date,
-      parent_first_name: parsed.data.parent_first_name,
-      parent_last_name: parsed.data.parent_last_name,
-      cub_id: parsed.data.cub_id,
-      cub_first_name: parsed.data.cub_first_name,
-      cub_last_name: parsed.data.cub_last_name,
-      handled_by: parsed.data.handled_by,
-      type: parsed.data.type,
-      purpose: parsed.data.purpose,
-      status: parsed.data.status,
-      feedback: parsed.data.feedback,
-      action_required: 'Yes',
-      action: parsed.data.action,
-      action_deadline: parsed.data.action_deadline || null,
-      action_status: parsed.data.action_status || 'Pending',
-      logged_by: user.id,
-    });
-    if (actionError) return { error: actionError.message };
-  }
+  if (!atomicError && atomicData) {
+    interaction = atomicData;
+  } else {
+    // 2. Resilient fallback: sequential multi-table insert
+    const { data: fallbackData, error: intError } = await supabase
+      .from('interactions')
+      .insert({
+        ...parsed.data,
+        message_sent: parsed.data.message_sent || null,
+        logged_by: user.id,
+        date: parsed.data.date || new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-  // Update cubs last engagement
-  await supabase
-    .from('cubs')
-    .update({
-      last_engagement_activity: interaction.date,
-      handled_by_last: parsed.data.handled_by,
-      purpose_last: parsed.data.purpose,
-    })
-    .eq('cub_id', parsed.data.cub_id);
+    if (intError) return { error: intError.message };
+    interaction = fallbackData;
 
-  // Update parent family record if phone or email is known
-  const { data: mc } = await supabase
-    .from('master_cubs')
-    .select('parent_phone, parent_email')
-    .eq('cub_id', parsed.data.cub_id)
-    .single();
+    // If action required, create action row
+    if (parsed.data.action_required === 'Yes' && parsed.data.action) {
+      const { error: actionError } = await supabase.from('actions').insert({
+        interaction_id: interaction.id,
+        date: interaction.date,
+        parent_first_name: parsed.data.parent_first_name,
+        parent_last_name: parsed.data.parent_last_name,
+        cub_id: parsed.data.cub_id,
+        cub_first_name: parsed.data.cub_first_name,
+        cub_last_name: parsed.data.cub_last_name,
+        handled_by: parsed.data.handled_by,
+        type: parsed.data.type,
+        purpose: parsed.data.purpose,
+        status: parsed.data.status,
+        feedback: parsed.data.feedback,
+        action_required: 'Yes',
+        action: parsed.data.action,
+        action_deadline: parsed.data.action_deadline || null,
+        action_status: parsed.data.action_status || 'Pending',
+        logged_by: user.id,
+      });
+      if (actionError) return { error: actionError.message };
+    }
 
-  if (mc?.parent_phone || mc?.parent_email) {
-    const phone = mc.parent_phone?.trim() || null;
-    const email = mc.parent_email?.toLowerCase().trim() || null;
-    let fQuery = supabase.from('families').update({
-      last_engagement_date: interaction.date,
-      last_handled_by: parsed.data.handled_by,
-      last_purpose: parsed.data.purpose,
-      updated_at: new Date().toISOString(),
-    });
-    if (phone) fQuery = fQuery.eq('parent_phone', phone);
-    else if (email) fQuery = fQuery.eq('parent_email', email);
-    await fQuery;
+    // Update cubs last engagement
+    await supabase
+      .from('cubs')
+      .update({
+        last_engagement_activity: interaction.date,
+        handled_by_last: parsed.data.handled_by,
+        purpose_last: parsed.data.purpose,
+      })
+      .eq('cub_id', parsed.data.cub_id);
+
+    // Update parent family record if phone or email is known
+    const { data: mc } = await supabase
+      .from('master_cubs')
+      .select('parent_phone, parent_email')
+      .eq('cub_id', parsed.data.cub_id)
+      .single();
+
+    if (mc?.parent_phone || mc?.parent_email) {
+      const phone = mc.parent_phone?.trim() || null;
+      const email = mc.parent_email?.toLowerCase().trim() || null;
+      let fQuery = supabase.from('families').update({
+        last_engagement_date: interaction.date,
+        last_handled_by: parsed.data.handled_by,
+        last_purpose: parsed.data.purpose,
+        updated_at: new Date().toISOString(),
+      });
+      if (phone) fQuery = fQuery.eq('parent_phone', phone);
+      else if (email) fQuery = fQuery.eq('parent_email', email);
+      await fQuery;
+    }
   }
 
   revalidatePath('/engagements');

@@ -178,7 +178,6 @@ export async function createUser({
       full_name: fullName,
       role,
       sheet_rep_name: sheetRepName || null,
-      plain_password: password,
     });
 
   if (profileError) {
@@ -260,7 +259,6 @@ export async function updateUserProfile({
     role,
     sheet_rep_name: sheetRepName ?? null,
   };
-  if (password) profileUpdate.plain_password = password;
 
   const { error: profileError } = await admin
     .from('profiles')
@@ -273,23 +271,8 @@ export async function updateUserProfile({
   return { success: true };
 }
 
-// ─── Get User Plain Password (admin only) ──────────────────────────
-export async function getUserPlainPassword(userId: string): Promise<{ password: string | null } | { error: string }> {
-  const supabase = await createClient();
-  const { data: { user: caller } } = await supabase.auth.getUser();
-  if (!caller) return { error: 'Unauthorized' };
-
-  const callerProfile = await getProfile(supabase, caller.id);
-  if (callerProfile?.role !== 'admin') return { error: 'Forbidden' };
-
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from('profiles')
-    .select('plain_password')
-    .eq('id', userId)
-    .single();
-
-  if (error) return { error: error.message };
-  return { password: (data as any)?.plain_password ?? null };
+// ─── Get User Plain Password (deprecated — passwords never stored in cleartext) ────
+export async function getUserPlainPassword(_userId: string): Promise<{ password: string | null } | { error: string }> {
+  return { password: null };
 }
 
