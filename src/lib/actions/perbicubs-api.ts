@@ -64,10 +64,11 @@ async function _refreshToken(apiKey: string): Promise<string> {
     throw new Error(`Perbicubs login: non-JSON response (HTTP ${res.status}). Body: ${rawText.substring(0, 300)}`);
   }
 
-  // Log the keys we see at the top level and inside data for diagnosis
-  console.log('[Perbicubs] Login response top-level keys:', Object.keys(json));
-  console.log('[Perbicubs] Login response data keys:', json?.data ? Object.keys(json.data) : 'no data key');
-
+  // Token may live at different paths depending on API version:
+  //   json.data.access_token  (standard)
+  //   json.access_token       (flat)
+  //   json.data.token         (alternative key)
+  //   json.token              (alternative flat)
   const token: string | undefined =
     json?.data?.access_token ??   // standard path
     json?.access_token        ??  // flat path

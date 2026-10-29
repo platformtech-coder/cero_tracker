@@ -31,12 +31,15 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
     return isViewer ? list.filter(c => c.segment === 'Gen. Comm') : list;
   }
 
+  // Safety cap: prevents unbounded heap growth in the unlikely event the RPC is unavailable.
+  // The RPC fast path above is the primary route; this fallback rarely executes.
+  const MAX_ROWS = 2000;
   let allData: any[] = [];
   let from = 0;
   const size = 1000;
   let hasMore = true;
 
-  while (hasMore) {
+  while (hasMore && allData.length < MAX_ROWS) {
     let query = supabase
       .from('cubs')
       .select(`
@@ -112,12 +115,14 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
     return isViewer ? list.filter(f => f.segments?.includes('Gen. Comm')) : list;
   }
 
+  // Safety cap: prevents unbounded heap growth if the RPC is unavailable.
+  const MAX_ROWS = 2000;
   let allData: any[] = [];
   let from = 0;
   const size = 1000;
   let hasMore = true;
 
-  while (hasMore) {
+  while (hasMore && allData.length < MAX_ROWS) {
     let query = supabase
       .from('families')
       .select('*')
