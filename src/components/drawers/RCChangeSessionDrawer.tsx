@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo, useEffect } from 'react';
 import {
   X, Search, RefreshCw, CheckCircle2, User, Phone,
-  Sparkles, Calendar, BookOpen
+  Sparkles, Calendar, BookOpen, ExternalLink
 } from 'lucide-react';
 import type { ReadingCircle } from '@/lib/types';
 import { changeCubRCSession } from '@/lib/actions/reading-circle';
@@ -11,6 +11,7 @@ import { sortRCSessions, isBareDaySession } from '@/lib/utils/rc';
 import { DEFAULT_RC_SESSION_OPTIONS } from '@/lib/constants/forms';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import { toast } from 'sonner';
+import CubProfileDrawer from '@/components/drawers/CubProfileDrawer';
 
 interface RCChangeSessionDrawerProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ interface RCChangeSessionDrawerProps {
   availableSessions?: string[];
   onClose: () => void;
   onSuccess: (cubId: string, newSession: string, newCategory?: string) => void;
+  readOnly?: boolean;
 }
 
 export default function RCChangeSessionDrawer({
@@ -48,7 +50,9 @@ export default function RCChangeSessionDrawer({
   availableSessions = [],
   onClose,
   onSuccess,
+  readOnly = false,
 }: RCChangeSessionDrawerProps) {
+  const [showCubProfile, setShowCubProfile] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const [activeCubId, setActiveCubId] = useState<string>(selectedCub?.cub_id || '');
@@ -161,16 +165,34 @@ export default function RCChangeSessionDrawer({
               Reassign cub to a different Reading Circle session
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
-              padding: '0.25rem', borderRadius: 6, display: 'flex', alignItems: 'center',
-            }}
-            title="Close drawer"
-          >
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {activeCub?.cub_id && (
+              <button
+                type="button"
+                onClick={() => setShowCubProfile(true)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
+                  padding: '0.25rem', borderRadius: 6, display: 'flex', alignItems: 'center',
+                  transition: 'color 0.15s',
+                }}
+                title="View Cub Profile"
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-3)')}
+              >
+                <ExternalLink size={18} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
+                padding: '0.25rem', borderRadius: 6, display: 'flex', alignItems: 'center',
+              }}
+              title="Close drawer"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -333,26 +355,36 @@ export default function RCChangeSessionDrawer({
               fontFamily: 'inherit', fontSize: '14px', fontWeight: 500,
             }}
           >
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isPending || !activeCub || !newSession || newSession === activeCub?.selected_session}
-            style={{
-              flex: 2, padding: '10px', borderRadius: 8, border: 'none',
-              background: 'var(--primary)', color: '#fff', cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: '14px', fontWeight: 600,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-              opacity: isPending || !activeCub || !newSession || newSession === activeCub?.selected_session ? 0.6 : 1,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            }}
-          >
-            {isPending ? <RefreshCw size={15} className="spin" /> : <RefreshCw size={15} />}
-            {isPending ? 'Updating...' : 'Change Session'}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isPending || !activeCub || !newSession || newSession === activeCub?.selected_session}
+              style={{
+                flex: 2, padding: '10px', borderRadius: 8, border: 'none',
+                background: 'var(--primary)', color: '#fff', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: '14px', fontWeight: 600,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                opacity: isPending || !activeCub || !newSession || newSession === activeCub?.selected_session ? 0.6 : 1,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              }}
+            >
+              {isPending ? <RefreshCw size={15} className="spin" /> : <RefreshCw size={15} />}
+              {isPending ? 'Updating...' : 'Change Session'}
+            </button>
+          )}
         </div>
       </div>
+
+      {showCubProfile && activeCub?.cub_id && (
+        <CubProfileDrawer
+          cubId={activeCub.cub_id}
+          readOnly={readOnly}
+          onClose={() => setShowCubProfile(false)}
+        />
+      )}
     </>
   );
 }

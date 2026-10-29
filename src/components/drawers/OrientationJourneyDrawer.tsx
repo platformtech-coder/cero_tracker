@@ -3,7 +3,7 @@
 import { useState, useEffect, useTransition, useMemo } from 'react';
 import {
   X, ChevronDown, ChevronUp, Save, RefreshCw, Calendar,
-  User, Phone, Sparkles, CheckCircle2, Clock, AlertCircle
+  User, Phone, Sparkles, CheckCircle2, Clock, AlertCircle, ExternalLink
 } from 'lucide-react';
 import type { Orientation } from '@/lib/types';
 import { updateCubJourney } from '@/lib/actions/orientation';
@@ -11,6 +11,7 @@ import { getNearestDateForDay } from '@/lib/utils/orientation';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import { formatDate } from '@/lib/utils/date';
 import { toast } from 'sonner';
+import CubProfileDrawer from '@/components/drawers/CubProfileDrawer';
 
 type StageKey = 'booked' | 'attended' | 'rc_selected' | 'first_win';
 
@@ -32,6 +33,7 @@ interface OrientationJourneyDrawerProps {
   availableSessions?: string[];
   onClose: () => void;
   onUpdated: (updates: Partial<Orientation> & { rcCategory?: string; version_ts?: string }) => void;
+  readOnly?: boolean;
 }
 
 export default function OrientationJourneyDrawer({
@@ -39,7 +41,9 @@ export default function OrientationJourneyDrawer({
   availableSessions = [],
   onClose,
   onUpdated,
+  readOnly = false,
 }: OrientationJourneyDrawerProps) {
+  const [showCubProfile, setShowCubProfile] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   // Form state initialized directly from record
@@ -279,16 +283,34 @@ export default function OrientationJourneyDrawer({
               Orientation Journey Management
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
-              padding: '0.25rem', borderRadius: 6, display: 'flex', alignItems: 'center',
-            }}
-            title="Close drawer"
-          >
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {record.cub_id && (
+              <button
+                type="button"
+                onClick={() => setShowCubProfile(true)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
+                  padding: '0.25rem', borderRadius: 6, display: 'flex', alignItems: 'center',
+                  transition: 'color 0.15s',
+                }}
+                title="View Cub Profile"
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-3)')}
+              >
+                <ExternalLink size={18} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)',
+                padding: '0.25rem', borderRadius: 6, display: 'flex', alignItems: 'center',
+              }}
+              title="Close drawer"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Info Strip */}
@@ -691,25 +713,35 @@ export default function OrientationJourneyDrawer({
               fontFamily: 'inherit', fontSize: '14px', fontWeight: 500,
             }}
           >
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isPending}
-            style={{
-              flex: 2, padding: '10px', borderRadius: 8, border: 'none',
-              background: 'var(--primary)', color: '#fff', cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: '14px', fontWeight: 600,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-              opacity: isPending ? 0.7 : 1, boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            }}
-          >
-            {isPending ? <RefreshCw size={15} className="spin" /> : <Save size={15} />}
-            {isPending ? 'Saving...' : 'Save Changes'}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isPending}
+              style={{
+                flex: 2, padding: '10px', borderRadius: 8, border: 'none',
+                background: 'var(--primary)', color: '#fff', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: '14px', fontWeight: 600,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                opacity: isPending ? 0.7 : 1, boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              }}
+            >
+              {isPending ? <RefreshCw size={15} className="spin" /> : <Save size={15} />}
+              {isPending ? 'Saving...' : 'Save Changes'}
+            </button>
+          )}
         </div>
       </div>
+
+      {showCubProfile && record.cub_id && (
+        <CubProfileDrawer
+          cubId={record.cub_id}
+          readOnly={readOnly}
+          onClose={() => setShowCubProfile(false)}
+        />
+      )}
     </>
   );
 }

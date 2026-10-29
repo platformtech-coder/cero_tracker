@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import type { Profile } from '@/lib/types';
+import type { Profile, Role } from '@/lib/types';
 import { 
   updateProfileRole, 
   saveConfigValue, 
   deleteConfigValue, 
   createUser,
   deleteUser,
-  updateUserProfile
+  updateUserProfile,
+  getUserPlainPassword,
 } from '@/lib/actions/settings';
 import { saveFormsConfig, saveFormsPartialConfig, rebuildForms } from '@/lib/actions/forms';
 import type { FormsConfig, SessionConfig, GradeMappingEntry } from '@/lib/constants/forms';
@@ -26,7 +27,7 @@ import { toast } from 'sonner';
 import {
   Loader2, PlusCircle, Save, Edit2, Trash2, X, User, Mail, Lock,
   Shield, ChevronLeft, ChevronRight, Plus, Wrench, ChevronDown, CheckCircle2,
-  Users, List, BookOpen, Calendar
+  Users, List, BookOpen, Calendar, Eye, EyeOff,
 } from 'lucide-react';
 import sharedStyles from '@/components/ui/dashboard.module.css';
 import styles from '../engagements/engagements.module.css';
@@ -477,9 +478,11 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newFullName, setNewFullName] = useState('');
-  const [newRole, setNewRole] = useState<'admin' | 'rep'>('rep');
+  const [newRole, setNewRole] = useState<Role>('rep');
   const [newSheetRepName, setNewSheetRepName] = useState<string>('');
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isFetchingPassword, setIsFetchingPassword] = useState(false);
 
   // Confirmation modals
   const [confirmState, setConfirmState] = useState<{
@@ -505,6 +508,8 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
     setNewSheetRepName('');
     setEditingUser(null);
     setIsDrawerOpen(false);
+    setShowPassword(false);
+    setIsFetchingPassword(false);
   };
 
   const openAddUserDrawer = () => {
@@ -512,14 +517,22 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
     setIsDrawerOpen(true);
   };
 
-  const openEditUserDrawer = (user: Profile) => {
+  const openEditUserDrawer = async (user: Profile) => {
     setEditingUser(user);
     setNewEmail(user.email);
     setNewFullName(user.full_name);
     setNewRole(user.role);
     setNewSheetRepName(user.sheet_rep_name ?? '');
-    setNewPassword(''); // Don't prefill password
+    setNewPassword(''); // Start blank, fetch from server
+    setShowPassword(false);
     setIsDrawerOpen(true);
+    // Fetch the current stored plain password
+    setIsFetchingPassword(true);
+    const res = await getUserPlainPassword(user.id);
+    setIsFetchingPassword(false);
+    if ('password' in res && res.password) {
+      setNewPassword(res.password);
+    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -767,7 +780,7 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
                     </td>
                     <td>{user.email}</td>
                     <td>
-                      <span className={`${sharedStyles.badge} ${user.role === 'admin' ? sharedStyles.badgeOrange : sharedStyles.badgeGreen}`}>
+                      <span className={`${sharedStyles.badge} ${user.role === 'admin' ? sharedStyles.badgeOrange : user.role === 'viewer' ? sharedStyles.badgeBlue : sharedStyles.badgeGreen}`}>
                         {user.role.toUpperCase()}
                       </span>
                     </td>
@@ -1007,23 +1020,47 @@ export default function SettingsClient({ profiles, config, profile, repNames, fo
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-2)', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
+                    {editingUser ? 'Password (current or new)' : 'Password *'}
                   </label>
-                  <input 
-                    type="password" 
-                    value={newPassword} 
-                    onChange={e => setNewPassword(e.target.value)} 
-                    placeholder={editingUser ? 'Leave blank to keep current' : 'Min. 6 characters'} 
-                    className={sharedStyles.formInput} 
-                    minLength={editingUser ? 0 : 6}
-                    required={!editingUser}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input 
+                      type={showPassword ? 'text' : 'password'}
+                      value={newPassword} 
+                      onChange={e => setNewPassword(e.target.value)} 
+                      placeholder={editingUser ? (isFetchingPassword ? 'Loading...' : 'Enter password') : 'Min. 6 characters'} 
+                      className={sharedStyles.formInput}
+                      style={{ paddingRight: '2.75rem' }}
+                      minLength={editingUser ? 0 : 6}
+                      required={!editingUser}
+                      disabled={isFetchingPassword}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(v => !v)}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                      style={{
+                        position: 'absolute', right: '0.6rem', top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-3)', padding: '0.2rem',
+                        display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {editingUser && (
+                    <p style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
+                      {isFetchingPassword ? 'Fetching current password…' : 'Showing current password. Change it here to update.'}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-2)', marginBottom: '6px', textTransform: 'uppercase' }}>Role</label>
                   <select value={newRole} onChange={e => setNewRole(e.target.value as any)} className={sharedStyles.formInput} style={{ appearance: 'none' }}>
                     <option value="rep">CER Rep (Limited access)</option>
                     <option value="admin">Admin (Full access)</option>
+                    <option value="viewer">Community Viewer (Read-only Gen. Comm)</option>
                   </select>
                 </div>
 

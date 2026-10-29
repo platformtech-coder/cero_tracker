@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useMemo, useTransition } from 'react';
-import { X, BookOpen, Loader2 } from 'lucide-react';
+import { X, BookOpen, Loader2, ExternalLink } from 'lucide-react';
 import { changeCubRCSession } from '@/lib/actions/reading-circle';
 import { formatDate } from '@/lib/utils/date';
 import { toast } from 'sonner';
+import CubProfileDrawer from '@/components/drawers/CubProfileDrawer';
 
 const DEFAULT_RC_SESSION_OPTIONS = [
   'Tuesday 5:00 pm – 5:45 pm',
@@ -34,6 +35,7 @@ interface AssignRCSelectionDrawerProps {
   availableSessions?: string[];
   onClose: () => void;
   onAssigned: (cubId: string, session: string) => void;
+  readOnly?: boolean;
 }
 
 export default function AssignRCSelectionDrawer({
@@ -42,7 +44,9 @@ export default function AssignRCSelectionDrawer({
   availableSessions = [],
   onClose,
   onAssigned,
+  readOnly = false,
 }: AssignRCSelectionDrawerProps) {
+  const [showCubProfile, setShowCubProfile] = useState(false);
   const sessionOptions = useMemo(() => {
     return availableSessions.length > 0 ? availableSessions : DEFAULT_RC_SESSION_OPTIONS;
   }, [availableSessions]);
@@ -136,19 +140,44 @@ export default function AssignRCSelectionDrawer({
               </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text-3)',
-              padding: '0.35rem',
-              borderRadius: 6,
-            }}
-          >
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {cub.cub_id && (
+              <button
+                type="button"
+                onClick={() => setShowCubProfile(true)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-3)',
+                  padding: '0.35rem',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'color 0.15s',
+                }}
+                title="View Cub Profile"
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-3)')}
+              >
+                <ExternalLink size={18} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-3)',
+                padding: '0.35rem',
+                borderRadius: 6,
+              }}
+              title="Close drawer"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Body Content */}
@@ -248,6 +277,14 @@ export default function AssignRCSelectionDrawer({
           </button>
         </div>
       </div>
+
+      {showCubProfile && cub.cub_id && (
+        <CubProfileDrawer
+          cubId={cub.cub_id}
+          readOnly={readOnly}
+          onClose={() => setShowCubProfile(false)}
+        />
+      )}
     </>
   );
 }

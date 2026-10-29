@@ -2,7 +2,7 @@
 // Core Domain Types for CERO Tracker
 // ============================================================
 
-export type Role = 'rep' | 'admin';
+export type Role = 'rep' | 'admin' | 'viewer';
 export type SubStatus = 'active' | 'almost expiring' | 'expired';
 export type Segment = 'Gen. Comm' | 'CDLS' | 'RCS';
 export type ActionStatus = 'Pending' | 'Overdue' | 'Completed' | 'Cancelled' | 'Not started' | 'In Progress';

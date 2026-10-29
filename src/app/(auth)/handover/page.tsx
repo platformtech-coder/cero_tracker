@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getHandoverNotes } from '@/lib/actions/handover';
 import HandoverClient from './HandoverClient';
@@ -17,6 +18,10 @@ export default async function HandoverPage() {
     .select('*')
     .eq('id', user.id)
     .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
 
   const notes = await getHandoverNotes();
 

@@ -13,11 +13,12 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
   const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
+  const isViewer = profile?.role === 'viewer';
   // Use sheet_rep_name if explicitly set, otherwise fall back to full_name
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  const shouldFilter = (!isAdmin && !isViewer) || isFilteredRep;
   const filterRep = shouldFilter ? effectiveName : null;
 
   // 1. Fast path: single-query RPC bypassing PostgREST pagination limits
@@ -26,7 +27,8 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
   });
 
   if (!rpcError && rpcData) {
-    return rpcData as (Cub & { cub_first_name: string; cub_last_name: string })[];
+    const list = rpcData as (Cub & { cub_first_name: string; cub_last_name: string })[];
+    return isViewer ? list.filter(c => c.segment === 'Gen. Comm') : list;
   }
 
   let allData: any[] = [];
@@ -54,7 +56,8 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
 
     query = query.eq('is_archived', false);
 
-    if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
+    if (isViewer) query = query.eq('segment', 'Gen. Comm');
+    else if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -68,7 +71,7 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
     }
   }
 
-  return allData.map((row: any) => ({
+  const mappedCubs = allData.map((row: any) => ({
     ...row,
     cub_first_name: row.master_cubs?.cub_first_name ?? '',
     cub_last_name: row.master_cubs?.cub_last_name ?? '',
@@ -79,6 +82,8 @@ export async function getDirectoryCubs(repFilter?: string): Promise<(Cub & { cub
     parent_whatsapp: row.master_cubs?.parent_whatsapp ?? '',
     master_cubs: undefined, 
   }));
+
+  return isViewer ? mappedCubs.filter((c: any) => c.segment === 'Gen. Comm') : mappedCubs;
 }
 
 // ─── Get Directory Families ──────────────────────────────────────
@@ -90,10 +95,11 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
   const profile = await getProfile(supabase, user.id);
 
   const isAdmin = profile?.role === 'admin';
+  const isViewer = profile?.role === 'viewer';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = !isAdmin || isFilteredRep;
+  const shouldFilter = (!isAdmin && !isViewer) || isFilteredRep;
   const filterRep = shouldFilter ? effectiveName : null;
 
   // 1. Fast path: single-query RPC bypassing PostgREST pagination limits
@@ -102,7 +108,8 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
   });
 
   if (!rpcError && rpcData) {
-    return rpcData as Family[];
+    const list = rpcData as Family[];
+    return isViewer ? list.filter(f => f.segments?.includes('Gen. Comm')) : list;
   }
 
   let allData: any[] = [];
@@ -117,7 +124,11 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
       .order('parent_last_name', { ascending: true })
       .range(from, from + size - 1);
 
-    if (shouldFilter) query = query.eq('relationship_owner', effectiveName!);
+    if (isViewer) {
+      query = query.contains('segments', ['Gen. Comm']);
+    } else if (shouldFilter) {
+      query = query.eq('relationship_owner', effectiveName!);
+    }
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -131,7 +142,8 @@ export async function getDirectoryFamilies(repFilter?: string): Promise<Family[]
     }
   }
 
-  return (allData as Family[]) ?? [];
+  const families = (allData as Family[]) ?? [];
+  return isViewer ? families.filter(f => f.segments?.includes('Gen. Comm')) : families;
 }
 
 // ─── Get Cub Activity (Interactions & Actions & Emails) ──────
@@ -318,3 +330,48 @@ export async function getSiblingsForCub(cubId: string): Promise<CubSiblingsRespo
     last_purpose: familyRow?.last_purpose,
   };
 }
+
+// ─── Get Single Cub Profile by cub_id ───────────────────────────
+export async function getCubById(cubId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  const { data, error } = await supabase
+    .from('cubs')
+    .select(`
+      *,
+      master_cubs (
+        cub_first_name,
+        cub_last_name,
+        parent_first_name,
+        parent_last_name,
+        parent_phone,
+        parent_email,
+        parent_whatsapp,
+        preferred_language,
+        alternative_contact_name,
+        alternative_contact_phone
+      )
+    `)
+    .eq('cub_id', cubId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    ...data,
+    cub_first_name: data.master_cubs?.cub_first_name ?? '',
+    cub_last_name: data.master_cubs?.cub_last_name ?? '',
+    parent_first_name: data.master_cubs?.parent_first_name ?? '',
+    parent_last_name: data.master_cubs?.parent_last_name ?? '',
+    parent_phone: data.master_cubs?.parent_phone ?? '',
+    parent_email: sanitizeEmail(data.master_cubs?.parent_email) ?? '',
+    parent_whatsapp: data.master_cubs?.parent_whatsapp ?? '',
+    preferred_language: data.master_cubs?.preferred_language ?? (data as any).preferred_language ?? '',
+    alternative_contact_name: data.master_cubs?.alternative_contact_name ?? (data as any).alternative_contact_name ?? '',
+    alternative_contact_phone: data.master_cubs?.alternative_contact_phone ?? (data as any).alternative_contact_phone ?? '',
+    master_cubs: undefined,
+  };
+}
+

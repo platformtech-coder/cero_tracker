@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getProfiles, getSettingsConfig } from '@/lib/actions/settings';
 import { getAllReps } from '@/lib/actions/dashboard';
@@ -20,6 +21,10 @@ export default async function SettingsPage() {
     .select('*')
     .eq('id', user.id)
     .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
 
   let profiles: Profile[] = [];
   let config: any[] = [];

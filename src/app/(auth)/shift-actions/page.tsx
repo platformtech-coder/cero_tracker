@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getShiftActions } from '@/lib/actions/shift';
 import ShiftClient from './ShiftClient';
@@ -17,6 +18,10 @@ export default async function ShiftActionsPage() {
     .select('*')
     .eq('id', user.id)
     .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
 
   const actions = await getShiftActions();
 

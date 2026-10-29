@@ -1043,10 +1043,12 @@ export default function OrientationClient({
   initialMaster,
   initialPending,
   initialScorecardMetrics,
+  profile,
   isAdmin,
   allReps = [],
   currentRep = 'All Reps',
 }: Props) {
+  const isViewer = profile?.role === 'viewer';
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
@@ -1384,6 +1386,7 @@ export default function OrientationClient({
         <OrientationJourneyDrawer
           record={drawerRecord as any}
           availableSessions={['Tuesday', 'Sunday']}
+          readOnly={isViewer}
           onClose={() => setDrawerRecord(null)}
           onUpdated={handleJourneyUpdated}
         />

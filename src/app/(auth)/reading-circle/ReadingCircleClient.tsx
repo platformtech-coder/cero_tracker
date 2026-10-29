@@ -154,7 +154,9 @@ export default function ReadingCircleClient({
   initialPending,
   initialPendingRC = [],
   initialAvailableSessions = [],
+  profile,
 }: Props) {
+  const isViewer = profile?.role === 'viewer';
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');

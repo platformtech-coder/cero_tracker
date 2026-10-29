@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getAllReps } from '@/lib/actions/dashboard';
 import {
@@ -25,6 +26,10 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     .select('role, full_name, sheet_rep_name')
     .eq('id', user.id)
     .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRep = profile?.sheet_rep_name || profile?.full_name;

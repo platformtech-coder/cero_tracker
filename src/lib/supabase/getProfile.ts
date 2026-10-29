@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from './server';
 
 export interface CachedProfile {
-  role: 'rep' | 'admin';
+  role: 'rep' | 'admin' | 'viewer';
   full_name: string;
   sheet_rep_name: string | null;
   email?: string;

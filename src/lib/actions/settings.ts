@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getProfile } from '@/lib/supabase/getProfile';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath, revalidateTag } from 'next/cache';
-import type { Profile } from '@/lib/types';
+import type { Profile, Role } from '@/lib/types';
 import { z } from 'zod';
 
 // ─── Get Profiles ──────────────────────────────────────────────
@@ -41,7 +41,7 @@ export async function getSettingsConfig() {
 }
 
 // ─── Update Profile Role ───────────────────────────────────────
-export async function updateProfileRole(id: string, role: 'admin' | 'rep') {
+export async function updateProfileRole(id: string, role: Role) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
@@ -143,7 +143,7 @@ export async function createUser({
   email: string;
   password: string;
   fullName: string;
-  role: 'admin' | 'rep';
+  role: Role;
   sheetRepName?: string;
 }) {
   // Verify caller is admin
@@ -178,6 +178,7 @@ export async function createUser({
       full_name: fullName,
       role,
       sheet_rep_name: sheetRepName || null,
+      plain_password: password,
     });
 
   if (profileError) {
@@ -230,7 +231,7 @@ export async function updateUserProfile({
   userId: string;
   fullName: string;
   email: string;
-  role: 'admin' | 'rep';
+  role: Role;
   password?: string;
   sheetRepName?: string | null;
 }) {
@@ -253,14 +254,42 @@ export async function updateUserProfile({
     if (authError) return { error: authError.message };
   }
 
+  const profileUpdate: Record<string, unknown> = {
+    full_name: fullName,
+    email,
+    role,
+    sheet_rep_name: sheetRepName ?? null,
+  };
+  if (password) profileUpdate.plain_password = password;
+
   const { error: profileError } = await admin
     .from('profiles')
-    .update({ full_name: fullName, email, role, sheet_rep_name: sheetRepName ?? null })
+    .update(profileUpdate)
     .eq('id', userId);
 
   if (profileError) return { error: profileError.message };
 
   revalidatePath('/settings');
   return { success: true };
+}
+
+// ─── Get User Plain Password (admin only) ──────────────────────────
+export async function getUserPlainPassword(userId: string): Promise<{ password: string | null } | { error: string }> {
+  const supabase = await createClient();
+  const { data: { user: caller } } = await supabase.auth.getUser();
+  if (!caller) return { error: 'Unauthorized' };
+
+  const callerProfile = await getProfile(supabase, caller.id);
+  if (callerProfile?.role !== 'admin') return { error: 'Forbidden' };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from('profiles')
+    .select('plain_password')
+    .eq('id', userId)
+    .single();
+
+  if (error) return { error: error.message };
+  return { password: (data as any)?.plain_password ?? null };
 }
 

@@ -11,5 +11,15 @@ export default async function Home() {
     redirect('/login');
   }
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
+
   redirect('/dashboard');
 }

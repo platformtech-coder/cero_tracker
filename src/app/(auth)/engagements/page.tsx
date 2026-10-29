@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getInteractions, getAllActions as getActions } from '@/lib/actions/engagements';
 import { getDropdowns, getAllReps } from '@/lib/actions/dashboard';
@@ -22,6 +23,10 @@ export default async function EngagementsPage({ searchParams }: PageProps) {
     .select('*')
     .eq('id', user.id)
     .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
 
   const isAdmin = profile?.role === 'admin';
   const { rep: repParam } = await searchParams;

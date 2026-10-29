@@ -27,9 +27,8 @@ export async function login(formData: FormData) {
     .eq('id', data.user.id)
     .single();
 
-  revalidatePath('/', 'layout');
-
-  return { success: true, redirectUrl: '/dashboard' };
+  const redirectUrl = profile?.role === 'viewer' ? '/directory' : '/dashboard';
+  return { success: true, redirectUrl };
 }
 
 export async function resetPassword(formData: FormData) {

@@ -45,6 +45,12 @@ const FIELD_LABELS: Record<string, string> = {
 export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?: () => void }) {
   const [requests, setRequests] = useState<ContactEditRequest[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const [counts, setCounts] = useState({
+    pending: 0,
+    approved: 0,
+    declined: 0,
+    total: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'pending' | 'approved' | 'declined' | 'all'>('pending');
@@ -62,6 +68,12 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
       const res = await getContactEditRequests(filter);
       setRequests(res.requests);
       setPendingCount(res.pendingCount);
+      setCounts({
+        pending: res.pendingCount,
+        approved: res.approvedCount ?? 0,
+        declined: res.declinedCount ?? 0,
+        total: res.totalCount ?? 0,
+      });
     } catch (err: any) {
       toast.error('Failed to load edit requests: ' + (err?.message || 'Unknown error'));
     } finally {
@@ -155,7 +167,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
             <Clock size={20} />
           </div>
           <div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1 }}>{pendingCount}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1 }}>{counts.pending}</div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginTop: 4 }}>Pending Approval</div>
           </div>
         </div>
@@ -166,9 +178,9 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
           </div>
           <div>
             <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1 }}>
-              {requests.filter(r => r.status === 'approved').length}
+              {counts.approved}
             </div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginTop: 4 }}>Approved in View</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginTop: 4 }}>Approved</div>
           </div>
         </div>
 
@@ -178,9 +190,9 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
           </div>
           <div>
             <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1 }}>
-              {requests.filter(r => r.status === 'declined').length}
+              {counts.declined}
             </div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginTop: 4 }}>Declined in View</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginTop: 4 }}>Declined</div>
           </div>
         </div>
       </div>
@@ -198,7 +210,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
               color: filter === 'pending' ? 'var(--yellow, #eab308)' : 'var(--text-2)'
             }}
           >
-            Pending ({pendingCount})
+            Pending ({counts.pending})
           </button>
           <button
             type="button"
@@ -210,7 +222,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
               color: filter === 'approved' ? 'var(--green, #22c55e)' : 'var(--text-2)'
             }}
           >
-            Approved
+            Approved ({counts.approved})
           </button>
           <button
             type="button"
@@ -222,7 +234,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
               color: filter === 'declined' ? 'var(--red, #ef4444)' : 'var(--text-2)'
             }}
           >
-            Declined
+            Declined ({counts.declined})
           </button>
           <button
             type="button"
@@ -234,7 +246,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
               color: filter === 'all' ? 'var(--primary)' : 'var(--text-2)'
             }}
           >
-            All Requests
+            All Requests ({counts.total})
           </button>
         </div>
 

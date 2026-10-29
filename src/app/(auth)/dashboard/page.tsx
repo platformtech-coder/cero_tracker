@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getDashboardStats, getDashboardActions, getAllReps } from '@/lib/actions/dashboard';
 import { getOrientationScorecardMetrics } from '@/lib/actions/orientation';
@@ -21,6 +22,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     .select('role')
     .eq('id', user.id)
     .single();
+
+  if (profile?.role === 'viewer') {
+    redirect('/directory');
+  }
 
   const isAdmin = profile?.role === 'admin';
 

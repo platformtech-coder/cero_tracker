@@ -225,17 +225,32 @@ export async function getPendingRequestForEntity(entityType: 'cub' | 'family', e
 // ─── 3. Get Requests for System Admin Approvals Tab ──────────────────────────
 export async function getContactEditRequests(
   filter: 'pending' | 'approved' | 'declined' | 'all' = 'pending'
-): Promise<{ requests: ContactEditRequest[]; pendingCount: number }> {
+): Promise<{
+  requests: ContactEditRequest[];
+  pendingCount: number;
+  approvedCount: number;
+  declinedCount: number;
+  totalCount: number;
+}> {
   const adminCtx = await getAdminContext();
-  if (!adminCtx) return { requests: [], pendingCount: 0 };
+  if (!adminCtx) {
+    return { requests: [], pendingCount: 0, approvedCount: 0, declinedCount: 0, totalCount: 0 };
+  }
 
   const db = getServiceClient();
 
-  // Get total pending count for badge
-  const { count: pendingCount } = await db
-    .from('contact_edit_requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'pending');
+  // Get total counts across all statuses in parallel
+  const [
+    { count: pendingCount },
+    { count: approvedCount },
+    { count: declinedCount },
+    { count: totalCount },
+  ] = await Promise.all([
+    db.from('contact_edit_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    db.from('contact_edit_requests').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+    db.from('contact_edit_requests').select('*', { count: 'exact', head: true }).eq('status', 'declined'),
+    db.from('contact_edit_requests').select('*', { count: 'exact', head: true }),
+  ]);
 
   let q = db.from('contact_edit_requests').select('*').order('created_at', { ascending: false });
   if (filter !== 'all') {
@@ -243,11 +258,22 @@ export async function getContactEditRequests(
   }
 
   const { data: requests, error } = await q.limit(100);
-  if (error || !requests) return { requests: [], pendingCount: pendingCount || 0 };
+  if (error || !requests) {
+    return {
+      requests: [],
+      pendingCount: pendingCount || 0,
+      approvedCount: approvedCount || 0,
+      declinedCount: declinedCount || 0,
+      totalCount: totalCount || 0,
+    };
+  }
 
   return {
     requests: requests as ContactEditRequest[],
     pendingCount: pendingCount || 0,
+    approvedCount: approvedCount || 0,
+    declinedCount: declinedCount || 0,
+    totalCount: totalCount || 0,
   };
 }
 

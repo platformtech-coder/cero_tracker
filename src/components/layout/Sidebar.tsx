@@ -36,6 +36,12 @@ const NAV_ITEMS = [
   { label: 'Reports', href: '/reports', icon: BarChart2 },
 ];
 
+const VIEWER_NAV_ITEMS = [
+  { label: 'Directory', href: '/directory', icon: Users },
+  { label: 'Orientation', href: '/orientation', icon: Compass },
+  { label: 'Reading Circle', href: '/reading-circle', icon: BookOpenCheck },
+];
+
 const ADMIN_ITEMS = [
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -51,6 +57,8 @@ interface SidebarProps {
 
 export function Sidebar({ profile, pendingCounts, customNavItems, activeCustomNavId, onCustomNavClick, customLogout }: SidebarProps) {
   const pathname = usePathname();
+  const isViewer = profile?.role === 'viewer';
+  const navItems = isViewer ? VIEWER_NAV_ITEMS : NAV_ITEMS;
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -92,8 +100,8 @@ export function Sidebar({ profile, pendingCounts, customNavItems, activeCustomNa
           </>
         ) : (
           <>
-            <span className={styles.navSection}>Main</span>
-            {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+            <span className={styles.navSection}>{isViewer ? 'Navigation' : 'Main'}</span>
+            {navItems.map(({ label, href, icon: Icon }) => {
               const isActive = pathname === href || pathname.startsWith(href + '/');
               const badge =
                 label === 'Orientation' && (pendingCounts?.orientation ?? 0) > 0
@@ -115,7 +123,7 @@ export function Sidebar({ profile, pendingCounts, customNavItems, activeCustomNa
               );
             })}
 
-            {profile?.role === 'admin' && (
+            {!isViewer && profile?.role === 'admin' && (
               <>
                 <span className={styles.navSection}>Admin</span>
                 {ADMIN_ITEMS.map(({ label, href, icon: Icon }) => {

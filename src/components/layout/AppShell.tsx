@@ -91,13 +91,15 @@ export function AppShell({
             {!hideHeaderActions && (
               <>
                 <RepFilterBar profile={profile} />
-                <button 
-                  className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`} 
-                  style={{ padding: '8px 12px', fontSize: 12 }}
-                  onClick={() => openInteractionDrawer()}
-                >
-                  <Plus size={14} style={{ marginRight: 6 }}/> Log Interaction
-                </button>
+                {profile?.role !== 'viewer' && (
+                  <button 
+                    className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`} 
+                    style={{ padding: '8px 12px', fontSize: 12 }}
+                    onClick={() => openInteractionDrawer()}
+                  >
+                    <Plus size={14} style={{ marginRight: 6 }}/> Log Interaction
+                  </button>
+                )}
               </>
             )}
             <NotificationBell profileRole={profile.role} isSystemAdminPortal={Boolean(customNavItems)} />
@@ -125,7 +127,7 @@ export function AppShell({
           </div>
         </main>
       </div>
-      <LogInteractionDrawer profile={profile} />
+      {profile?.role !== 'viewer' && <LogInteractionDrawer profile={profile} />}
     </div>
   );
 }
