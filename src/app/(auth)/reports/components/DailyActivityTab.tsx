@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   BarChart2,
   Download,
-  ChevronDown,
   Search,
 } from 'lucide-react';
 import type { DailyActivityRow, InteractionDetailRow } from '@/lib/actions/reports';
@@ -22,21 +21,28 @@ export function DailyActivityTab({
   startDate,
   endDate,
   allPurposes,
+  selectedPurpose = '',
   repFilter,
 }: {
   data: DailyActivityRow[];
   startDate: string;
   endDate: string;
   allPurposes: string[];
+  selectedPurpose?: string;
   repFilter?: string;
 }) {
   const [drawer, setDrawer] = useState<{ rep: string; startDate: string; endDate: string } | null>(null);
   const [interactions, setInteractions] = useState<InteractionDetailRow[]>([]);
   const [loadingInteractions, setLoadingInteractions] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPurposes, setSelectedPurposes] = useState<string[]>([]);
   const [tableData, setTableData] = useState<DailyActivityRow[]>(data);
   const [loadingTable, setLoadingTable] = useState(false);
+
+  // Derive selected purposes array from single-selection prop
+  const selectedPurposes = useMemo(
+    () => selectedPurpose ? [selectedPurpose] : [],
+    [selectedPurpose]
+  );
 
   const isFirstMount = useRef(true);
 
@@ -82,8 +88,6 @@ export function DailyActivityTab({
     total_interactions: acc.total_interactions + r.total_interactions,
   }), { calls_made: 0, calls_successful: 0, calls_unsuccessful: 0, messages_sent: 0, total_interactions: 0 });
 
-  const togglePurpose = (p: string) =>
-    setSelectedPurposes(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
 
   const loadInteractions = useCallback((rep: string, s: string, e: string, purposes: string[]) => {
     setLoadingInteractions(true);
@@ -145,54 +149,6 @@ export function DailyActivityTab({
         <KpiCard label="Total Interactions Logged" value={totals.total_interactions} icon={BarChart2} iconClass={styles.iconPrimary} />
       </div>
 
-      {/* ── Purpose Filter ──────────────────────────────────────── */}
-      {allPurposes.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
-              Filter by Purpose:
-            </span>
-            {allPurposes.map(p => {
-              const active = selectedPurposes.includes(p);
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => togglePurpose(p)}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 20,
-                    border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
-                    background: active ? 'var(--primary)' : 'var(--bg-card)',
-                    color: active ? '#fff' : 'var(--text-2)',
-                    fontSize: 12,
-                    fontWeight: active ? 600 : 400,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {p}
-                </button>
-              );
-            })}
-            {selectedPurposes.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setSelectedPurposes([])}
-                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, cursor: 'pointer', padding: '4px 0', fontWeight: 600 }}
-              >
-                Clear all
-              </button>
-            )}
-          </div>
-          {selectedPurposes.length > 0 && (
-            <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, marginBottom: 0 }}>
-              Showing activity filtered for <strong>{selectedPurposes.join(', ')}</strong>. Click any rep row to view details.
-            </p>
-          )}
-        </div>
-      )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button
@@ -236,61 +192,6 @@ export function DailyActivityTab({
             : `for ${formatDate(drawer?.startDate)}`}.
         </p>
 
-        {/* Purpose Dropdown Filter inside Drawer */}
-        {allPurposes.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <label htmlFor="drawer-purpose-select" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', marginBottom: 5 }}>
-              Filter by Purpose
-            </label>
-            <div style={{ position: 'relative' }}>
-              <select
-                id="drawer-purpose-select"
-                value={selectedPurposes.length === 1 ? selectedPurposes[0] : (selectedPurposes.length > 1 ? '__multiple__' : '')}
-                onChange={e => {
-                  const val = e.target.value;
-                  setSelectedPurposes(val && val !== '__multiple__' ? [val] : []);
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px 32px 8px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-input)',
-                  color: 'var(--text-1)',
-                  fontSize: 13,
-                  fontWeight: selectedPurposes.length > 0 ? 600 : 400,
-                  appearance: 'none',
-                  cursor: 'pointer',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <option value="">All Purposes</option>
-                {selectedPurposes.length > 1 && (
-                  <option value="__multiple__" disabled>
-                    Multiple Selected ({selectedPurposes.length})
-                  </option>
-                )}
-                {allPurposes.map(p => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                style={{
-                  position: 'absolute',
-                  right: 12,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-3)',
-                  pointerEvents: 'none',
-                }}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Search Bar */}
         <div style={{ marginBottom: 14 }}>

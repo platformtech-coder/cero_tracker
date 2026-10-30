@@ -167,9 +167,10 @@ export function NotificationBell({ profileRole, isSystemAdminPortal = false }: N
       {/* Bell Button */}
       <button
         type="button"
-        className={styles.bellBtn}
+        className={`${styles.bellBtn} ${open ? styles.bellBtnActive : ''}`}
         onClick={handleToggle}
         aria-label="View notifications"
+        aria-expanded={open}
         title={
           bellBadgeCount > 0
             ? `${bellBadgeCount} new notification(s)`
@@ -190,7 +191,7 @@ export function NotificationBell({ profileRole, isSystemAdminPortal = false }: N
           {/* ─── Header ─── */}
           <div className={styles.header}>
             <div className={styles.headerTitle}>
-              <Bell size={15} style={{ color: 'var(--primary, #6366f1)' }} />
+              <Bell size={15} style={{ color: 'var(--primary)' }} />
               <span>{isAdmin ? 'Admin Approvals & Alerts' : 'My Edit Requests'}</span>
             </div>
 

@@ -41,7 +41,7 @@ export function Badge({
 export function KpiCard({
   label, value, sub, icon: Icon, iconClass, valueClass, onClick,
 }: {
-  label: string; value: number | string; sub?: string;
+  label: string; value: number | string; sub?: React.ReactNode;
   icon: React.ElementType; iconClass: string; valueClass?: string;
   onClick?: () => void;
 }) {

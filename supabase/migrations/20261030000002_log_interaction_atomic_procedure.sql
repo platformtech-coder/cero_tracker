@@ -18,6 +18,7 @@ DECLARE
   v_date timestamptz;
   v_cub_id text;
   v_handled_by text;
+  v_action_handled_by text;
   v_purpose text;
   v_action_required text;
   v_action text;
@@ -84,6 +85,17 @@ BEGIN
 
   -- 2. Insert into actions queue if action_required is 'Yes'
   IF v_action_required = 'Yes' AND v_action IS NOT NULL AND trim(v_action) <> '' THEN
+    -- Determine the owner of this action:
+    -- An action belongs to the cub's relationship owner so the assigned rep sees it in their Actions tab.
+    SELECT relationship_owner INTO v_action_handled_by
+    FROM public.cubs
+    WHERE cub_id = v_cub_id
+    LIMIT 1;
+
+    IF v_action_handled_by IS NULL OR trim(v_action_handled_by) = '' THEN
+      v_action_handled_by := v_handled_by;
+    END IF;
+
     INSERT INTO public.actions (
       interaction_id,
       date,
@@ -110,7 +122,7 @@ BEGIN
       v_cub_id,
       p_interaction->>'cub_first_name',
       p_interaction->>'cub_last_name',
-      v_handled_by,
+      v_action_handled_by,
       p_interaction->>'type',
       v_purpose,
       p_interaction->>'status',

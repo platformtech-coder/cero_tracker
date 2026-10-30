@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { format, parseISO, isValid } from 'date-fns';
 import {
   Search, CheckCircle2, MessageSquarePlus, Clock, AlertCircle,
-  ChevronLeft, ChevronRight, X, Plus, Edit2, Trash2, RefreshCw,
+  ChevronLeft, ChevronRight, X, Plus, RefreshCw,
   ArrowUpDown, CheckCircle, AlertTriangle, MessageSquare, Calendar,
   ExternalLink, Phone, ListChecks, MessageCircle
 } from 'lucide-react';
@@ -654,12 +654,26 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
 }
 
 // ─── Actions Tab ───────────────────────────────────────────────
-function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
+function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated, allReps = [], isAdmin }: {
   actions: Action[];
   dropdowns: Record<string, string[]>;
   profile: Profile;
   onActionUpdated: () => void;
+  allReps?: string[];
+  isAdmin?: boolean;
 }) {
+  const searchParams = useSearchParams();
+  const rawActionStatus = searchParams.get('action_status');
+  const [statusTab, setStatusTabState] = useState<'pending' | 'completed'>(() => {
+    return rawActionStatus === 'completed' ? 'completed' : 'pending';
+  });
+
+  useEffect(() => {
+    if (rawActionStatus === 'pending' || rawActionStatus === 'completed') {
+      setStatusTabState(rawActionStatus);
+    }
+  }, [rawActionStatus]);
+
   const [actions, setActions] = useState(initial);
   const [isPending, startTransition] = useTransition();
 
@@ -667,10 +681,52 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
     setActions(initial);
   }, [initial]);
   const [search, setSearch] = useState('');
+  const [repFilter, setRepFilter] = useState('');
   
   const [primaryFilter, setPrimaryFilter] = useState('');
   const [secondaryFilter, setSecondaryFilter] = useState('');
   const [page, setPage] = useState(1);
+
+  const repOptions = useMemo(() => {
+    const set = new Set<string>();
+    (allReps || []).forEach(r => { if (r) set.add(r); });
+    (dropdowns.handled_by || []).forEach(r => { if (r) set.add(r); });
+    actions.forEach(a => {
+      if (a.handled_by) set.add(a.handled_by);
+      if (a.relationship_owner) set.add(a.relationship_owner);
+    });
+    return Array.from(set).sort();
+  }, [allReps, dropdowns.handled_by, actions]);
+
+  const hasActiveFilters = Boolean(search || repFilter || primaryFilter || (secondaryFilter && secondaryFilter !== 'All'));
+  const resetFilters = useCallback(() => {
+    setSearch('');
+    setRepFilter('');
+    setPrimaryFilter('');
+    setSecondaryFilter('');
+    setPage(1);
+  }, []);
+
+  const setStatusTab = useCallback((t: 'pending' | 'completed') => {
+    setStatusTabState(t);
+    setPage(1);
+    if (primaryFilter === 'status') {
+      setSecondaryFilter('All');
+    }
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('action_status', t);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [primaryFilter]);
+
+  const pendingCount = useMemo(() => {
+    return actions.filter(a => !['Completed', 'Cancelled'].includes(a.action_status)).length;
+  }, [actions]);
+
+  const completedCount = useMemo(() => {
+    return actions.filter(a => a.action_status === 'Completed' || a.action_status === 'Cancelled').length;
+  }, [actions]);
   
   const [followUpAction, setFollowUpAction] = useState<Action | null>(null);
   const [completeActionId, setCompleteActionId] = useState<number | null>(null);
@@ -696,43 +752,56 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
 
   const handlePrimaryFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setPrimaryFilter(e.target.value);
-    setSecondaryFilter(e.target.value === 'status' ? 'Active' : '');
+    setSecondaryFilter(e.target.value === 'status' ? 'All' : '');
     setPage(1);
   };
 
   const secondaryOptions = useMemo(() => {
     if (!primaryFilter || primaryFilter === 'status') return [];
+    const baseList = statusTab === 'pending'
+      ? actions.filter(a => !['Completed', 'Cancelled'].includes(a.action_status))
+      : actions.filter(a => a.action_status === 'Completed' || a.action_status === 'Cancelled');
     const uniqueValues = new Set<string>();
-    actions.forEach(a => {
+    baseList.forEach(a => {
       const val = a[primaryFilter as keyof Action];
       if (val) uniqueValues.add(String(val));
     });
     return Array.from(uniqueValues).sort();
-  }, [primaryFilter, actions]);
+  }, [primaryFilter, statusTab, actions]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return actions.filter(a => {
+    const baseList = statusTab === 'pending'
+      ? actions.filter(a => !['Completed', 'Cancelled'].includes(a.action_status))
+      : actions.filter(a => a.action_status === 'Completed' || a.action_status === 'Cancelled');
+
+    return baseList.filter(a => {
       const matchSearch = !q ||
         `${a.cub_first_name} ${a.cub_last_name}`.toLowerCase().includes(q) ||
         `${a.parent_first_name} ${a.parent_last_name}`.toLowerCase().includes(q) ||
         a.action.toLowerCase().includes(q) ||
         a.handled_by.toLowerCase().includes(q);
 
+      const matchRep = !repFilter || 
+        a.handled_by === repFilter || 
+        (a.relationship_owner && a.relationship_owner === repFilter);
+
       let matchFilter = true;
       if (primaryFilter === 'status') {
-        matchFilter =
-          secondaryFilter === 'All' || !secondaryFilter ||
-          (secondaryFilter === 'Active' && !['Completed', 'Cancelled'].includes(a.action_status)) ||
-          (secondaryFilter === 'Overdue' && (a.action_status === 'Overdue' || a.overdue_status === 'Yes')) ||
-          a.action_status === secondaryFilter;
+        if (secondaryFilter && secondaryFilter !== 'All') {
+          if (secondaryFilter === 'Overdue') {
+            matchFilter = a.action_status === 'Overdue' || a.overdue_status === 'Yes';
+          } else {
+            matchFilter = a.action_status === secondaryFilter;
+          }
+        }
       } else if (primaryFilter && secondaryFilter) {
         matchFilter = String(a[primaryFilter as keyof Action]) === secondaryFilter;
       }
 
-      return matchSearch && matchFilter;
+      return matchSearch && matchFilter && matchRep;
     });
-  }, [actions, search, primaryFilter, secondaryFilter]);
+  }, [actions, statusTab, search, primaryFilter, secondaryFilter, repFilter]);
 
   const { sortedData, handleSort, getSortIndicator } = useTableSort(filtered, {
     sortableKeys: ['cub_first_name', 'action', 'action_deadline', 'action_status', 'handled_by'],
@@ -741,21 +810,116 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
 
   const paginated = sortedData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-
-
   return (
     <>
+      {/* ── Sub-tabs: Pending vs Completed Actions ── */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 4,
+          background: 'var(--bg-input)',
+          padding: 3,
+          borderRadius: 9,
+          border: '1px solid var(--border)',
+          width: 'fit-content',
+          marginBottom: '1rem',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setStatusTab('pending')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '7px 16px',
+            borderRadius: 7,
+            border: 'none',
+            background: statusTab === 'pending' ? 'var(--bg-card)' : 'transparent',
+            color: statusTab === 'pending' ? 'var(--text-1)' : 'var(--text-3)',
+            fontWeight: statusTab === 'pending' ? 700 : 500,
+            fontSize: 13,
+            cursor: 'pointer',
+            boxShadow: statusTab === 'pending' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Clock size={14} style={{ color: statusTab === 'pending' ? 'var(--orange)' : 'inherit' }} />
+          <span>Pending</span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '1px 7px',
+              borderRadius: 10,
+              background: statusTab === 'pending' ? 'var(--orange-dim)' : 'var(--bg-hover)',
+              color: statusTab === 'pending' ? 'var(--orange)' : 'var(--text-3)',
+            }}
+          >
+            {pendingCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusTab('completed')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '7px 16px',
+            borderRadius: 7,
+            border: 'none',
+            background: statusTab === 'completed' ? 'var(--bg-card)' : 'transparent',
+            color: statusTab === 'completed' ? 'var(--text-1)' : 'var(--text-3)',
+            fontWeight: statusTab === 'completed' ? 700 : 500,
+            fontSize: 13,
+            cursor: 'pointer',
+            boxShadow: statusTab === 'completed' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <CheckCircle2 size={14} style={{ color: statusTab === 'completed' ? 'var(--green)' : 'inherit' }} />
+          <span>Completed</span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '1px 7px',
+              borderRadius: 10,
+              background: statusTab === 'completed' ? 'var(--green-dim)' : 'var(--bg-hover)',
+              color: statusTab === 'completed' ? 'var(--green)' : 'var(--text-3)',
+            }}
+          >
+            {completedCount}
+          </span>
+        </button>
+      </div>
+
       <div className={sharedStyles.tableWrap}>
         <div className={sharedStyles.tableControls}>
-          <div className={sharedStyles.tableControlsLeft}>
+          <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
             <div style={{ position: 'relative', flex: 0 }}>
               <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-              <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search actions..." value={search}
+              <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder={statusTab === 'pending' ? 'Search pending actions...' : 'Search completed actions...'} value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }} />
             </div>
+
+            {isAdmin && repOptions.length > 0 && (
+              <select
+                className={sharedStyles.filterSelect}
+                value={repFilter}
+                onChange={e => { setRepFilter(e.target.value); setPage(1); }}
+                style={{ width: '150px' }}
+              >
+                <option value="">All Reps</option>
+                {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            )}
             
             <select className={sharedStyles.filterSelect} value={primaryFilter} onChange={handlePrimaryFilterChange} style={{ width: '160px' }}>
               <option value="">All</option>
+              {isAdmin && <option value="handled_by">Rep</option>}
               <option value="orientation_stage">Orientation Stage</option>
               <option value="sub_status">Sub Status</option>
               <option value="flag">Flag</option>
@@ -764,14 +928,20 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
 
             {primaryFilter === 'status' ? (
               <select className={sharedStyles.filterSelect} value={secondaryFilter} onChange={e => { setSecondaryFilter(e.target.value); setPage(1); }} style={{ width: '140px' }}>
-                <option value="Active">Active</option>
-                <option value="All">All</option>
-                <option value="Not started">Not started</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Pending">Pending</option>
-                <option value="Overdue">Overdue</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
+                <option value="All">{statusTab === 'pending' ? 'All Pending' : 'All Completed'}</option>
+                {statusTab === 'pending' ? (
+                  <>
+                    <option value="Not started">Not started</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Overdue">Overdue</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </>
+                )}
               </select>
             ) : primaryFilter ? (
               <select className={sharedStyles.filterSelect} value={secondaryFilter} onChange={e => { setSecondaryFilter(e.target.value); setPage(1); }} style={{ width: '180px' }}>
@@ -779,6 +949,25 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
                 {secondaryOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             ) : null}
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--primary)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  textDecoration: 'underline',
+                }}
+              >
+                Clear filters
+              </button>
+            )}
           </div>
           <div className={sharedStyles.tableControlsRight}>
             <span className={sharedStyles.sectionCount}>{filtered.length}</span>
@@ -788,8 +977,16 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
         {paginated.length === 0 ? (
           <div className={sharedStyles.emptyState}>
             <div className={sharedStyles.emptyStateIcon}><CheckCircle2 size={22} color="var(--text-3)" /></div>
-            <div className={sharedStyles.emptyStateTitle}>No actions</div>
-            <div className={sharedStyles.emptyStateSub}>{search || secondaryFilter !== 'Active' ? 'Try adjusting filters' : 'All clear!'}</div>
+            <div className={sharedStyles.emptyStateTitle}>
+              {statusTab === 'pending' ? 'No pending actions' : 'No completed actions'}
+            </div>
+            <div className={sharedStyles.emptyStateSub}>
+              {search || (secondaryFilter && secondaryFilter !== 'All')
+                ? 'Try adjusting filters'
+                : statusTab === 'pending'
+                ? 'All clear! No pending actions to work on.'
+                : 'No completed actions found.'}
+            </div>
           </div>
         ) : (
           <div className={sharedStyles.tableScrollBody}>
@@ -891,13 +1088,15 @@ function ActionsTab({ actions: initial, dropdowns, profile, onActionUpdated }: {
 }
 
 // ─── Interactions Tab ──────────────────────────────────────────
-function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }: {
+function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew, allReps = [], isAdmin }: {
   interactions: Interaction[];
   dropdowns: Record<string, string[]>;
   profile: Profile;
   onLogNew: (i: Interaction) => void;
+  allReps?: string[];
+  isAdmin?: boolean;
 }) {
-  const isAdmin = profile?.role === 'admin';
+  const router = useRouter();
   const [interactions, setInteractions] = useState(initial);
 
   useEffect(() => {
@@ -905,12 +1104,31 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
   }, [initial]);
   const [search, setSearch] = useState('');
   const [purposeFilter, setPurposeFilter] = useState('');
+  const [repFilter, setRepFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [editingInt, setEditingInt] = useState<Interaction | null>(null);
+  const [selectedInt, setSelectedInt] = useState<Interaction | null>(null);
+  const [drawerMode, setDrawerMode] = useState<'view' | 'edit'>('view');
   const [showModal, setShowModal] = useState(false);
+  const [followUpAction, setFollowUpAction] = useState<Action | null>(null);
   const [deleteInteractionId, setDeleteInteractionId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [, startTransition] = useTransition();
+
+  const repOptions = useMemo(() => {
+    const set = new Set<string>();
+    (allReps || []).forEach(r => { if (r) set.add(r); });
+    (dropdowns.handled_by || []).forEach(r => { if (r) set.add(r); });
+    initial.forEach(i => { if (i.handled_by) set.add(i.handled_by); });
+    return Array.from(set).sort();
+  }, [allReps, dropdowns.handled_by, initial]);
+
+  const hasActiveFilters = Boolean(search || purposeFilter || repFilter);
+  const resetFilters = useCallback(() => {
+    setSearch('');
+    setPurposeFilter('');
+    setRepFilter('');
+    setPage(1);
+  }, []);
 
   const handleDeleteConfirm = () => {
     if (!deleteInteractionId) return;
@@ -919,8 +1137,14 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
     startTransition(async () => {
       const res = await deleteInteraction(deleteInteractionId);
       if (res.success) {
-        setInteractions(prev => prev.filter(i => i.id !== deleteInteractionId));
+        const deletedInt = interactions.find(i => i.id === deleteInteractionId);
+        if (deletedInt?.family_interaction_id) {
+          setInteractions(prev => prev.filter(i => i.family_interaction_id !== deletedInt.family_interaction_id));
+        } else {
+          setInteractions(prev => prev.filter(i => i.id !== deleteInteractionId));
+        }
         toast.success('Interaction deleted successfully');
+        router.refresh();
       } else {
         toast.error(res.error || 'Failed to delete interaction');
       }
@@ -937,9 +1161,10 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
         (i.feedback || '').toLowerCase().includes(q) ||
         i.handled_by.toLowerCase().includes(q);
       const matchPurpose = !purposeFilter || i.purpose === purposeFilter;
-      return matchSearch && matchPurpose;
+      const matchRep = !repFilter || i.handled_by === repFilter;
+      return matchSearch && matchPurpose && matchRep;
     });
-  }, [interactions, search, purposeFilter]);
+  }, [interactions, search, purposeFilter, repFilter]);
 
   const { sortedData, handleSort, getSortIndicator } = useTableSort(filtered, {
     sortableKeys: ['date', 'cub_first_name', 'purpose', 'feedback', 'handled_by'],
@@ -955,12 +1180,12 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
 
   const handleModalSuccess = (newInt: Interaction | null, isEdit: boolean) => {
     if (isEdit) {
-      setInteractions(prev => prev.map(i => i.id === editingInt?.id ? { ...i, ...newInt } as Interaction : i));
+      setInteractions(prev => prev.map(i => i.id === selectedInt?.id ? { ...i, ...newInt } as Interaction : i));
     } else if (newInt) {
       setInteractions(prev => [newInt, ...prev]);
       onLogNew(newInt);
     }
-    setEditingInt(null);
+    setSelectedInt(null);
     setShowModal(false);
   };
 
@@ -970,16 +1195,45 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
     <>
       <div className={sharedStyles.tableWrap}>
         <div className={sharedStyles.tableControls}>
-          <div className={sharedStyles.tableControlsLeft}>
+          <div className={sharedStyles.tableControlsLeft} style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
             <div style={{ position: 'relative', flex: 0 }}>
               <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
               <input className={sharedStyles.searchInput} style={{ paddingLeft: '2rem' }} placeholder="Search..." value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }} />
             </div>
+            {isAdmin && repOptions.length > 0 && (
+              <select
+                className={sharedStyles.filterSelect}
+                value={repFilter}
+                onChange={e => { setRepFilter(e.target.value); setPage(1); }}
+                style={{ width: '150px' }}
+              >
+                <option value="">All Reps</option>
+                {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            )}
             <select className={sharedStyles.filterSelect} value={purposeFilter} onChange={e => { setPurposeFilter(e.target.value); setPage(1); }}>
               <option value="">All Purposes</option>
               {purposes.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--primary)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  textDecoration: 'underline',
+                }}
+              >
+                Clear filters
+              </button>
+            )}
           </div>
           <div className={sharedStyles.tableControlsRight}>
             <span className={sharedStyles.sectionCount}>{filtered.length}</span>
@@ -1045,12 +1299,20 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
                       {getSortIndicator('feedback') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
-                  {isAdmin && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
                 {paginated.map(int => (
-                  <tr key={int.id}>
+                  <tr
+                    key={int.id}
+                    onClick={() => {
+                      setSelectedInt(int);
+                      setDrawerMode('view');
+                      setShowModal(true);
+                    }}
+                    style={{ cursor: 'pointer' }}
+                    title="Click to view details"
+                  >
                     <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{fmtDate(int.date, true)}</td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{int.cub_first_name} {int.cub_last_name}</div>
@@ -1072,18 +1334,6 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
                         {int.feedback || '—'}
                       </div>
                     </td>
-                    {isAdmin && (
-                      <td>
-                        <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
-                          <button className={styles.iconBtn} onClick={() => { setEditingInt(int); setShowModal(true); }} title="Edit">
-                            <Edit2 size={13} />
-                          </button>
-                          <button className={`${styles.iconBtn} ${styles.iconBtnDanger}`} onClick={() => handleDelete(int.id)} title="Delete">
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
@@ -1095,12 +1345,30 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
 
       {showModal && (
         <InteractionDrawer
-          mode={editingInt ? 'edit' : 'log'}
-          initial={editingInt}
+          mode={drawerMode}
+          initial={selectedInt}
           dropdowns={dropdowns}
           profile={profile}
-          onClose={() => { setShowModal(false); setEditingInt(null); }}
+          onClose={() => { setShowModal(false); setSelectedInt(null); }}
           onSuccess={handleModalSuccess}
+          onDelete={profile.role !== 'viewer' ? (id) => {
+            setShowModal(false);
+            handleDelete(id);
+          } : undefined}
+          onOpenFollowUp={(action) => setFollowUpAction(action)}
+        />
+      )}
+
+      {followUpAction && (
+        <FollowUpDrawer
+          action={followUpAction}
+          dropdowns={dropdowns}
+          profile={profile}
+          onClose={() => setFollowUpAction(null)}
+          onSuccess={() => {
+            setFollowUpAction(null);
+            router.refresh();
+          }}
         />
       )}
 
@@ -1109,8 +1377,8 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew }
         isOpen={showDeleteConfirm}
         onClose={() => { setShowDeleteConfirm(false); setDeleteInteractionId(null); }}
         onConfirm={handleDeleteConfirm}
-        title="Delete Interaction?"
-        message="Delete this interaction? This cannot be undone."
+        title="Delete Interaction Log?"
+        message="Are you sure you want to delete this interaction log? This will delete the log for all related cubs as well as any attached actions."
         confirmText="Delete"
         variant="danger"
       />
@@ -1175,6 +1443,8 @@ export default function EngagementsClient({ initialInteractions, initialActions,
           actions={actions}
           dropdowns={dropdowns}
           profile={profile}
+          isAdmin={isAdmin}
+          allReps={allReps}
           onActionUpdated={() => {
             router.refresh();
           }}
@@ -1186,6 +1456,8 @@ export default function EngagementsClient({ initialInteractions, initialActions,
           interactions={initialInteractions}
           dropdowns={dropdowns}
           profile={profile}
+          isAdmin={isAdmin}
+          allReps={allReps}
           onLogNew={() => {
             router.refresh();
           }}

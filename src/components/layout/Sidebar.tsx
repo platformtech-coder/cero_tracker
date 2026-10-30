@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   FileText,
   Settings,
-  Terminal,
   LogOut,
   BarChart2,
 } from 'lucide-react';

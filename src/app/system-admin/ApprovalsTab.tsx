@@ -357,7 +357,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
                 </div>
 
                 {/* Requester banner */}
-                <div style={{ fontSize: 12, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--surface-hover, rgba(255,255,255,0.03))', borderRadius: 8 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--bg-hover)', borderRadius: 8 }}>
                   <User size={13} style={{ color: 'var(--primary)' }} />
                   <span>Submitted by <strong>{req.requester_name}</strong> {req.requester_email ? `(${req.requester_email})` : ''}</span>
                 </div>
@@ -483,13 +483,13 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
         >
           <div
             style={{
-              background: 'var(--surface, #1e293b)',
+              background: 'var(--bg-card)',
               border: '1px solid var(--border)',
               borderRadius: 14,
               padding: 24,
               width: '100%',
               maxWidth: 450,
-              boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+              boxShadow: 'var(--shadow)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -505,11 +505,11 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
             </div>
 
             <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>
-              Are you sure you want to decline the contact edit for <strong>{declineTarget.entity_name}</strong>?
+              Are you sure you want to decline the contact edit for <strong style={{ color: 'var(--text-1)' }}>{declineTarget.entity_name}</strong>?
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
                 Reason for declining (optional, will be notified to the rep):
               </label>
               <textarea
@@ -522,10 +522,11 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
                   padding: '8px 12px',
                   borderRadius: 8,
                   border: '1px solid var(--border)',
-                  background: 'var(--bg)',
+                  background: 'var(--bg-input)',
                   color: 'var(--text-1)',
                   fontSize: 12,
                   resize: 'vertical',
+                  outline: 'none',
                 }}
               />
             </div>
@@ -540,7 +541,7 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
                   fontSize: 12,
                   fontWeight: 600,
                   cursor: 'pointer',
-                  background: 'transparent',
+                  background: 'var(--bg-input)',
                   border: '1px solid var(--border)',
                   color: 'var(--text-2)',
                 }}

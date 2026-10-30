@@ -18,7 +18,7 @@ export async function getInteractions(repFilter?: string): Promise<Interaction[]
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
   const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
   const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = isFilteredRep;
+  const shouldFilter = !isAdmin || isFilteredRep;
   const filterRep = shouldFilter ? effectiveName : null;
 
   // 1. Fast path: server-side RPC avoids PostgREST 414 URI Too Long & JS filter loops
@@ -98,6 +98,8 @@ export async function getInteractions(repFilter?: string): Promise<Interaction[]
 }
 
 // ─── Get All Actions (Engagements page) ───────────────────────
+// Reps only see actions for their own assigned cubs / actions.
+// Admins see all, or can filter to a specific rep via repFilter.
 export async function getAllActions(repFilter?: string): Promise<Action[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -107,11 +109,19 @@ export async function getAllActions(repFilter?: string): Promise<Action[]> {
 
   const isAdmin = profile?.role === 'admin';
   const effectiveRepName = profile?.sheet_rep_name || profile?.full_name;
-  const isFilteredRep = isAdmin && repFilter && repFilter !== 'All Reps';
-  const effectiveName = isFilteredRep ? repFilter : effectiveRepName;
-  const shouldFilter = isFilteredRep;
 
-  let query = supabase
+  // Determine the rep name to filter by:
+  // - Admin with explicit repFilter → use that rep
+  // - Admin with no repFilter → no filter (see all)
+  // - Non-admin → always filter to their own rep identity
+  let filterByRep: string | null = null;
+  if (isAdmin && repFilter && repFilter !== 'All Reps') {
+    filterByRep = repFilter;
+  } else if (!isAdmin && effectiveRepName) {
+    filterByRep = effectiveRepName;
+  }
+
+  const query = supabase
     .from('actions')
     .select(`
       *,
@@ -119,13 +129,11 @@ export async function getAllActions(repFilter?: string): Promise<Action[]> {
     `)
     .order('action_deadline', { ascending: true, nullsFirst: false });
 
-  if (shouldFilter) query = query.eq('handled_by', effectiveName!);
-
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   
   // Map joined properties back to the top level action object (safe against array or object from PostgREST)
-  const actions = (data || []).map((row: any) => {
+  let actions = (data || []).map((row: any) => {
     const cub = Array.isArray(row.master_cubs?.cubs) ? row.master_cubs.cubs[0] : row.master_cubs?.cubs;
     return {
       ...row,
@@ -136,6 +144,18 @@ export async function getAllActions(repFilter?: string): Promise<Action[]> {
       master_cubs: undefined,
     };
   });
+
+  // Filter actions per rep:
+  // An action belongs to the cub's relationship owner (or fallback to handled_by if no owner).
+  // If Rep A logs an interaction for Rep B's cub, Rep B owns the action so Rep B sees it, and Rep A does not.
+  if (filterByRep) {
+    const target = filterByRep.toLowerCase();
+    actions = actions.filter((a: Action) => {
+      const ro = (a.relationship_owner || '').toLowerCase();
+      const hb = (a.handled_by || '').toLowerCase();
+      return ro ? ro === target : hb === target;
+    });
+  }
 
   return actions as Action[];
 }
@@ -310,6 +330,14 @@ export async function submitInteraction(formData: InteractionFormData) {
 
     // If action required, create action row
     if (parsed.data.action_required === 'Yes' && parsed.data.action) {
+      // Look up relationship_owner of cub so the action belongs to the cub's relationship owner
+      const { data: cubRel } = await supabase
+        .from('cubs')
+        .select('relationship_owner')
+        .eq('cub_id', parsed.data.cub_id)
+        .single();
+      const actionHandledBy = cubRel?.relationship_owner || parsed.data.handled_by;
+
       const { error: actionError } = await supabase.from('actions').insert({
         interaction_id: interaction.id,
         date: interaction.date,
@@ -318,7 +346,7 @@ export async function submitInteraction(formData: InteractionFormData) {
         cub_id: parsed.data.cub_id,
         cub_first_name: parsed.data.cub_first_name,
         cub_last_name: parsed.data.cub_last_name,
-        handled_by: parsed.data.handled_by,
+        handled_by: actionHandledBy,
         type: parsed.data.type,
         purpose: parsed.data.purpose,
         status: parsed.data.status,
@@ -442,8 +470,15 @@ export async function submitFamilyInteraction(data: MultiCubInteractionPayload) 
       ? data.cubs.filter(c => c.cub_id === data.action_cub_id)
       : [data.cubs[0]];
 
-    const actionRows = targetCubs.map(c => {
+    const actionRows = await Promise.all(targetCubs.map(async c => {
       const matchInt = (inserted || []).find((i: any) => i.cub_id === c.cub_id) || inserted?.[0];
+      const { data: cubRel } = await supabase
+        .from('cubs')
+        .select('relationship_owner')
+        .eq('cub_id', c.cub_id)
+        .single();
+      const actionHandledBy = cubRel?.relationship_owner || data.handled_by;
+
       return {
         interaction_id: matchInt?.id || familyInteractionId,
         date: interactionDate,
@@ -452,7 +487,7 @@ export async function submitFamilyInteraction(data: MultiCubInteractionPayload) 
         cub_id: c.cub_id,
         cub_first_name: c.cub_first_name,
         cub_last_name: c.cub_last_name,
-        handled_by: data.handled_by,
+        handled_by: actionHandledBy,
         type: data.type,
         purpose: data.purpose,
         status: data.status || null,
@@ -463,7 +498,7 @@ export async function submitFamilyInteraction(data: MultiCubInteractionPayload) 
         action_status: (data.action_status || 'Pending') as any,
         logged_by: user.id,
       };
-    });
+    }));
 
     await supabase.from('actions').insert(actionRows);
   }
@@ -569,6 +604,13 @@ export async function editInteraction(formData: z.infer<typeof EditInteractionSc
 
   // Sync with Actions table
   if (parsed.data.action_required === 'Yes' && parsed.data.action) {
+    const { data: cubRel } = await supabase
+      .from('cubs')
+      .select('relationship_owner')
+      .eq('cub_id', parsed.data.cub_id)
+      .single();
+    const actionHandledBy = cubRel?.relationship_owner || parsed.data.handled_by;
+
     await supabase.from('actions').upsert({
       interaction_id: parsed.data.id,
       date: original.date,
@@ -577,7 +619,7 @@ export async function editInteraction(formData: z.infer<typeof EditInteractionSc
       cub_id: parsed.data.cub_id,
       cub_first_name: parsed.data.cub_first_name,
       cub_last_name: parsed.data.cub_last_name,
-      handled_by: parsed.data.handled_by,
+      handled_by: actionHandledBy,
       type: parsed.data.type,
       purpose: parsed.data.purpose,
       status: parsed.data.status || null,
@@ -690,6 +732,13 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
 
   // 4. Create new action if follow-up also requires one
   if (followUp.action_required === 'Yes' && followUp.action?.trim()) {
+    const { data: cubRel } = await supabase
+      .from('cubs')
+      .select('relationship_owner')
+      .eq('cub_id', followUp.cub_id)
+      .single();
+    const actionHandledBy = cubRel?.relationship_owner || followUp.handled_by;
+
     await supabase.from('actions').insert({
       interaction_id: newInt.id,
       date: now,
@@ -698,7 +747,7 @@ export async function submitActionFollowUp(formData: z.infer<typeof FollowUpSche
       cub_last_name: followUp.cub_last_name,
       parent_first_name: followUp.parent_first_name,
       parent_last_name: followUp.parent_last_name,
-      handled_by: followUp.handled_by,
+      handled_by: actionHandledBy,
       type: followUp.type,
       purpose: followUp.purpose,
       action_required: 'Yes',
@@ -754,41 +803,121 @@ export async function updateActionStatus(formData: z.infer<typeof UpdateActionSc
   return { success: true };
 }
 
+// ─── Get Linked Action for an Interaction ──────────────────────
+export async function getLinkedAction(interactionId: string): Promise<Action | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  // Find interaction to discover any family_interaction_id or legacy interaction_id
+  const { data: currentInt } = await supabase
+    .from('interactions')
+    .select('id, interaction_id, family_interaction_id')
+    .eq('id', interactionId)
+    .maybeSingle();
+
+  const queryIds = [interactionId];
+  if (currentInt?.interaction_id) queryIds.push(currentInt.interaction_id);
+  if (currentInt?.family_interaction_id) queryIds.push(currentInt.family_interaction_id);
+
+  const { data } = await supabase
+    .from('actions')
+    .select(`
+      *,
+      master_cubs(cubs(sub_status, orientation_stage, flag, relationship_owner))
+    `)
+    .in('interaction_id', queryIds)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return null;
+
+  const cub = Array.isArray(data.master_cubs?.cubs) ? data.master_cubs.cubs[0] : data.master_cubs?.cubs;
+  return {
+    ...data,
+    sub_status: cub?.sub_status,
+    orientation_stage: cub?.orientation_stage,
+    flag: cub?.flag,
+    relationship_owner: cub?.relationship_owner,
+    master_cubs: undefined,
+  } as Action;
+}
+
 // ─── Delete Interaction ────────────────────────────────────────
+// Reps and admins can delete an interaction log.
+// Deleting an interaction log will delete all related cubs logged as well as any attached actions.
 export async function deleteInteraction(interactionId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Unauthorized' };
 
   const profile = await getProfile(supabase, user.id);
-  if (profile?.role !== 'admin') {
-    return { error: 'Only administrators have permission to delete interaction logs' };
+  if (profile?.role === 'viewer') {
+    return { error: 'Viewers do not have permission to delete interaction logs' };
   }
 
-  // Verify interaction exists
-  const { data: existing } = await supabase
+  // 1. Verify interaction exists
+  const { data: existing, error: findErr } = await supabase
     .from('interactions')
-    .select('id, interaction_id')
+    .select('id, interaction_id, family_interaction_id, cub_id')
     .eq('id', interactionId)
     .single();
 
-  if (!existing) return { error: 'Interaction not found' };
+  if (findErr || !existing) return { error: 'Interaction not found' };
 
-  // Delete linked action first (matching both id and interaction_id to guarantee consistency)
+  // 2. Identify all related interaction IDs (including sibling cubs logged in a batch/family interaction)
+  let relatedInteractionIds: string[] = [existing.id];
   if (existing.interaction_id) {
-    await supabase.from('actions').delete().or(`interaction_id.eq.${existing.id},interaction_id.eq.${existing.interaction_id}`);
-  } else {
-    await supabase.from('actions').delete().eq('interaction_id', existing.id);
+    relatedInteractionIds.push(existing.interaction_id);
   }
 
-  const { error } = await supabase
-    .from('interactions')
-    .delete()
-    .eq('id', interactionId);
+  if (existing.family_interaction_id) {
+    const { data: siblings } = await supabase
+      .from('interactions')
+      .select('id, interaction_id')
+      .eq('family_interaction_id', existing.family_interaction_id);
 
-  if (error) return { error: error.message };
+    (siblings || []).forEach(s => {
+      if (s.id) relatedInteractionIds.push(s.id);
+      if (s.interaction_id) relatedInteractionIds.push(s.interaction_id);
+    });
+  }
+
+  relatedInteractionIds = Array.from(new Set(relatedInteractionIds.filter(Boolean)));
+
+  // 3. Delete attached actions first (prevents any foreign key violations)
+  if (existing.family_interaction_id) {
+    await supabase
+      .from('actions')
+      .delete()
+      .eq('interaction_id', existing.family_interaction_id);
+  }
+  if (relatedInteractionIds.length > 0) {
+    await supabase
+      .from('actions')
+      .delete()
+      .in('interaction_id', relatedInteractionIds);
+  }
+
+  // 4. Delete the interactions themselves
+  if (existing.family_interaction_id) {
+    const { error: famDelErr } = await supabase
+      .from('interactions')
+      .delete()
+      .eq('family_interaction_id', existing.family_interaction_id);
+    if (famDelErr) return { error: famDelErr.message };
+  } else if (relatedInteractionIds.length > 0) {
+    const { error: intDelErr } = await supabase
+      .from('interactions')
+      .delete()
+      .in('id', relatedInteractionIds);
+    if (intDelErr) return { error: intDelErr.message };
+  }
 
   revalidatePath('/engagements');
   revalidatePath('/dashboard');
+  revalidatePath('/shift-actions');
+  revalidatePath('/directory');
   return { success: true };
 }

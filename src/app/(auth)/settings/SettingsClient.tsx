@@ -556,7 +556,7 @@ function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
             disabled={isRebuildingRC || isSavingRC}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', background: 'var(--green)',
+              padding: '7px 14px', background: 'var(--primary)',
               color: '#fff', border: 'none', borderRadius: 8,
               fontWeight: 600, fontSize: 12, cursor: 'pointer',
               opacity: isRebuildingRC ? 0.7 : 1

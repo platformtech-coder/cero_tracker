@@ -168,7 +168,7 @@ export function SkeletonTable({
   rows?: number;
   columns: SkeletonColumn[];
   showSearch?: boolean;
-  showFilters?: boolean;
+  showFilters?: boolean | React.ReactNode;
   rightAction?: boolean | React.ReactNode;
   banner?: React.ReactNode;
 }) {
@@ -180,12 +180,14 @@ export function SkeletonTable({
           {showSearch && (
             <Skeleton width={220} height={34} borderRadius={8} />
           )}
-          {showFilters && (
+          {showFilters === true ? (
             <>
               <Skeleton width={110} height={34} borderRadius={8} />
               <Skeleton width={130} height={34} borderRadius={8} />
             </>
-          )}
+          ) : showFilters ? (
+            showFilters
+          ) : null}
         </div>
         <div className={sharedStyles.tableControlsRight} style={{ gap: 8 }}>
           {rightAction === true ? (

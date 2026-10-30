@@ -171,10 +171,16 @@ export interface RCSessionRosterRow {
 export interface OrientationFunnelRow {
   rep: string;
   total_gen_comm: number;
+  total_active: number;
+  total_expired: number;
   completed: number;
+  completed_active: number;
+  completed_expired: number;
   not_completed: number;
-  in_progress: number;
-  not_started: number;
+  not_completed_active: number;
+  not_completed_expired: number;
+  in_progress?: number;
+  not_started?: number;
   attended_present: number;
   booked_count: number;
   show_rate_pct: number | null;
@@ -193,7 +199,8 @@ export interface OrientationDetailRow {
   booked_date: string | null;
   date_onboarded: string | null;
   attended_status: string | null;
-  progress_status: 'In Progress' | 'Not Started';
+  progress_status: string;
+  sub_status?: string | null;
 }
 
 export interface RetentionMetricsRow {

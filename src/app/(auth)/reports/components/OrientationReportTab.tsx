@@ -25,33 +25,49 @@ export function OrientationReportTab({
   };
 }) {
   const [drawer, setDrawer] = useState(false);
-  const [filterMode, setFilterMode] = useState<'all' | 'in_progress' | 'not_started'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'active' | 'expired'>('all');
   const [selectedDrawerRep, setSelectedDrawerRep] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   const totals = data.funnel.reduce((acc, r) => ({
-    total_gen_comm:   acc.total_gen_comm + (r.total_gen_comm || 0),
-    completed:        acc.completed + (r.completed || 0),
-    not_completed:    acc.not_completed + (r.not_completed || 0),
-    in_progress:      acc.in_progress + (r.in_progress || 0),
-    not_started:      acc.not_started + (r.not_started || 0),
-    attended_present: acc.attended_present + (r.attended_present || 0),
-    booked_count:     acc.booked_count + (r.booked_count || 0),
+    total_gen_comm:        acc.total_gen_comm + (r.total_gen_comm || 0),
+    total_active:          acc.total_active + (r.total_active || 0),
+    total_expired:         acc.total_expired + (r.total_expired || 0),
+    completed:             acc.completed + (r.completed || 0),
+    completed_active:      acc.completed_active + (r.completed_active || 0),
+    completed_expired:     acc.completed_expired + (r.completed_expired || 0),
+    not_completed:         acc.not_completed + (r.not_completed || 0),
+    not_completed_active:  acc.not_completed_active + (r.not_completed_active || 0),
+    not_completed_expired: acc.not_completed_expired + (r.not_completed_expired || 0),
+    attended_present:      acc.attended_present + (r.attended_present || 0),
+    booked_count:          acc.booked_count + (r.booked_count || 0),
   }), {
-    total_gen_comm: 0, completed: 0, not_completed: 0,
-    in_progress: 0, not_started: 0, attended_present: 0, booked_count: 0
+    total_gen_comm: 0, total_active: 0, total_expired: 0,
+    completed: 0, completed_active: 0, completed_expired: 0,
+    not_completed: 0, not_completed_active: 0, not_completed_expired: 0,
+    attended_present: 0, booked_count: 0
   });
 
   const completionRate = totals.total_gen_comm > 0 ? Math.round(100 * totals.completed / totals.total_gen_comm) : 0;
   const overallShowRate = totals.booked_count > 0 ? Math.round(100 * totals.attended_present / totals.booked_count) : 0;
 
-  const inProgressCount = data.not_completed_detail.filter(c => c.progress_status === 'In Progress').length;
-  const notStartedCount = data.not_completed_detail.filter(c => c.progress_status === 'Not Started').length;
+  const activeCubsCount = data.not_completed_detail.filter(c => {
+    const s = (c.sub_status || '').toLowerCase().trim();
+    return s === 'active' || s === 'almost expiring';
+  }).length;
+  const expiredCubsCount = data.not_completed_detail.filter(c => {
+    const s = (c.sub_status || '').toLowerCase().trim();
+    return s === 'expired';
+  }).length;
 
   const filteredCubs = data.not_completed_detail.filter(c => {
     if (selectedDrawerRep && c.rep !== selectedDrawerRep) return false;
-    if (filterMode === 'in_progress' && c.progress_status !== 'In Progress') return false;
-    if (filterMode === 'not_started' && c.progress_status !== 'Not Started') return false;
+    const sub = (c.sub_status || '').toLowerCase().trim();
+    const isActive = sub === 'active' || sub === 'almost expiring';
+    const isExpired = sub === 'expired';
+
+    if (filterMode === 'active' && !isActive) return false;
+    if (filterMode === 'expired' && !isExpired) return false;
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -64,7 +80,7 @@ export function OrientationReportTab({
     return true;
   });
 
-  const handleOpenDrawerWithMode = (mode: 'all' | 'in_progress' | 'not_started') => {
+  const handleOpenDrawerWithMode = (mode: 'all' | 'active' | 'expired') => {
     setSelectedDrawerRep(null);
     setFilterMode(mode);
     setDrawer(true);
@@ -72,18 +88,28 @@ export function OrientationReportTab({
 
   return (
     <div>
-      <div className={styles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+      <div className={styles.statsGrid} style={{ marginBottom: '1.5rem', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         <KpiCard
           label="Total Gen. Comm."
           value={totals.total_gen_comm}
-          sub="General Community cohort"
+          sub={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>{totals.total_active} Active</span>
+              <span style={{ color: 'var(--orange)', fontWeight: 600 }}>{totals.total_expired} Expired</span>
+            </div>
+          }
           icon={Users}
           iconClass={styles.iconPrimary}
         />
         <KpiCard
           label="Completed"
           value={totals.completed}
-          sub={`${completionRate}% finished journey`}
+          sub={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>{totals.completed_active} Active</span>
+              <span style={{ color: 'var(--orange)', fontWeight: 600 }}>{totals.completed_expired} Expired</span>
+            </div>
+          }
           icon={CheckCircle2}
           iconClass={styles.iconGreen}
           valueClass={styles.valueGreen}
@@ -91,28 +117,16 @@ export function OrientationReportTab({
         <KpiCard
           label="Left (Not Completed)"
           value={totals.not_completed}
-          sub="Click to view pending cubs"
+          sub={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>{totals.not_completed_active} Active</span>
+              <span style={{ color: 'var(--orange)', fontWeight: 600 }}>{totals.not_completed_expired} Expired</span>
+            </div>
+          }
           icon={AlertCircle}
           iconClass={styles.iconOrange}
           valueClass={styles.valueOrange}
           onClick={() => handleOpenDrawerWithMode('all')}
-        />
-        <KpiCard
-          label="In Progress"
-          value={totals.in_progress}
-          sub="Invited / Booked"
-          icon={Compass}
-          iconClass={styles.iconBlue}
-          onClick={() => handleOpenDrawerWithMode('in_progress')}
-        />
-        <KpiCard
-          label="Not Started"
-          value={totals.not_started}
-          sub="Yet to begin orientation"
-          icon={AlertTriangle}
-          iconClass={styles.iconRed}
-          valueClass={totals.not_started > 0 ? styles.valueRed : undefined}
-          onClick={() => handleOpenDrawerWithMode('not_started')}
         />
         <KpiCard
           label="Show Rate"
@@ -139,7 +153,7 @@ export function OrientationReportTab({
           </button>
           <button
             onClick={() => exportCSV('orientation-gen-comm-funnel', data.funnel, [
-              'rep', 'total_gen_comm', 'completed', 'not_completed', 'in_progress', 'not_started', 'attended_present', 'show_rate_pct'
+              'rep', 'total_gen_comm', 'total_active', 'total_expired', 'completed', 'completed_active', 'completed_expired', 'not_completed', 'not_completed_active', 'not_completed_expired', 'attended_present', 'show_rate_pct'
             ])}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
@@ -159,30 +173,38 @@ export function OrientationReportTab({
         }}
         columns={[
           { key: 'rep', label: 'Rep', render: v => <span style={{ fontWeight: 600 }}>{v}</span> },
-          { key: 'total_gen_comm', label: 'Total Gen Comm', align: 'center' },
+          {
+            key: 'total_gen_comm',
+            label: 'Total Gen Comm',
+            align: 'center',
+            render: (v, r) => (
+              <div>
+                <span style={{ fontWeight: 600 }}>{v}</span>{' '}
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({r.total_active} act · {r.total_expired} exp)</span>
+              </div>
+            ),
+          },
           {
             key: 'completed',
             label: 'Completed',
             align: 'center',
-            render: v => <span style={{ color: 'var(--green)', fontWeight: 700 }}>{v}</span>,
+            render: (v, r) => (
+              <div>
+                <span style={{ color: 'var(--green)', fontWeight: 700 }}>{v}</span>{' '}
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({r.completed_active} act · {r.completed_expired} exp)</span>
+              </div>
+            ),
           },
           {
             key: 'not_completed',
-            label: 'Left (Pending)',
+            label: 'Left (Not Completed)',
             align: 'center',
-            render: v => <span style={{ color: 'var(--orange)', fontWeight: 700 }}>{v}</span>,
-          },
-          {
-            key: 'in_progress',
-            label: 'In Progress',
-            align: 'center',
-            render: v => <span style={{ color: 'var(--blue)', fontWeight: 600 }}>{v}</span>,
-          },
-          {
-            key: 'not_started',
-            label: 'Not Started',
-            align: 'center',
-            render: v => <span style={{ color: v > 0 ? 'var(--red)' : 'var(--text-3)', fontWeight: v > 0 ? 700 : 400 }}>{v}</span>,
+            render: (v, r) => (
+              <div>
+                <span style={{ color: 'var(--orange)', fontWeight: 700 }}>{v}</span>{' '}
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({r.not_completed_active} act · {r.not_completed_expired} exp)</span>
+              </div>
+            ),
           },
           { key: 'attended_present', label: 'Attended (Present)', align: 'center' },
           {
@@ -237,9 +259,9 @@ export function OrientationReportTab({
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
           {[
-            { id: 'all',         label: `All Left (${data.not_completed_detail.length})` },
-            { id: 'in_progress', label: `In Progress (${inProgressCount})` },
-            { id: 'not_started', label: `Not Started (${notStartedCount})` },
+            { id: 'all',     label: `All Left (${data.not_completed_detail.length})` },
+            { id: 'active',  label: `Active Subs (${activeCubsCount})` },
+            { id: 'expired', label: `Expired Subs (${expiredCubsCount})` },
           ].map(f => (
             <button
               key={f.id}
@@ -261,7 +283,7 @@ export function OrientationReportTab({
           <button
             onClick={() => exportCSV('orientation-pending-cubs', filteredCubs, [
               'rep', 'cub_first_name', 'cub_last_name', 'parent_first_name', 'parent_last_name',
-              'parent_phone', 'stage', 'session', 'booked_date', 'date_onboarded', 'progress_status'
+              'parent_phone', 'stage', 'session', 'booked_date', 'date_onboarded', 'sub_status'
             ])}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
@@ -273,37 +295,41 @@ export function OrientationReportTab({
           </button>
         </div>
 
-        {filteredCubs.map((c, i) => (
-          <div key={i} style={{
-            padding: '12px 14px', borderRadius: 10, background: 'var(--bg-card)',
-            border: '1px solid var(--border)', marginBottom: 10
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>
-                  {c.cub_first_name} {c.cub_last_name}
+        {filteredCubs.map((c, i) => {
+          const sub = (c.sub_status || '').toLowerCase().trim();
+          const isActive = sub === 'active' || sub === 'almost expiring';
+          return (
+            <div key={i} style={{
+              padding: '12px 14px', borderRadius: 10, background: 'var(--bg-card)',
+              border: '1px solid var(--border)', marginBottom: 10
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-1)' }}>
+                    {c.cub_first_name} {c.cub_last_name}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                    Parent: {c.parent_first_name} {c.parent_last_name} {c.parent_phone && `(📞 ${c.parent_phone})`}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-                  Parent: {c.parent_first_name} {c.parent_last_name} {c.parent_phone && `(📞 ${c.parent_phone})`}
+                <Badge
+                  label={isActive ? 'Active Sub' : 'Expired Sub'}
+                  variant={isActive ? 'green' : 'red'}
+                />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
+                Rep: <strong>{c.rep}</strong> · Stage: <strong>{c.stage || 'New'}</strong>
+                {c.session && ` · Session: ${c.session}`}
+                {c.booked_date && ` · Booked: ${formatDate(c.booked_date)}`}
+              </div>
+              {c.date_onboarded && (
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+                  Onboarded: {formatDate(c.date_onboarded)}
                 </div>
-              </div>
-              <Badge
-                label={c.progress_status}
-                variant={c.progress_status === 'In Progress' ? 'blue' : 'red'}
-              />
+              )}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
-              Rep: <strong>{c.rep}</strong> · Stage: <strong>{c.stage || 'New'}</strong>
-              {c.session && ` · Session: ${c.session}`}
-              {c.booked_date && ` · Booked: ${formatDate(c.booked_date)}`}
-            </div>
-            {c.date_onboarded && (
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-                Onboarded: {formatDate(c.date_onboarded)}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </DetailDrawer>
     </div>
   );

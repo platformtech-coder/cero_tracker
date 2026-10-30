@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Eye, EyeOff, Terminal } from 'lucide-react';
+import Image from 'next/image';
+import { Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -41,8 +42,15 @@ export default function SystemAdminLoginPage() {
     <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 32, width: '100%', maxWidth: 400, boxShadow: '0 12px 48px rgba(0,0,0,0.1)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-            <Terminal size={28} color="#fff" />
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
+            <Image
+              src="/logo.png"
+              alt="PerbiCubs Logo"
+              width={72}
+              height={72}
+              priority
+              style={{ objectFit: 'contain' }}
+            />
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-1)', margin: 0 }}>System Center</h1>
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>Super Admin Access Only</p>

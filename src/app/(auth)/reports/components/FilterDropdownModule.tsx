@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Calendar } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Calendar, Filter } from 'lucide-react';
 import { formatDate } from '@/lib/utils/date';
 import { getSundayWeek } from './shared';
 
@@ -10,11 +10,17 @@ export function FilterDropdownModule({
   startDate,
   endDate,
   onApplyRange,
+  allPurposes = [],
+  selectedPurpose = '',
+  onSelectPurpose,
 }: {
   activeTab: string;
   startDate: string;
   endDate: string;
   onApplyRange: (s: string, e: string) => void;
+  allPurposes?: string[];
+  selectedPurpose?: string;
+  onSelectPurpose?: (purpose: string) => void;
 }) {
   const [showCustom, setShowCustom] = useState(false);
   const [customStart, setCustomStart] = useState(startDate);
@@ -43,21 +49,36 @@ export function FilterDropdownModule({
     const toYMD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     return { start: toYMD(s), end: toYMD(e) };
   }, []);
+  const thisWeek = useMemo(() => getSundayWeek(new Date(), 0), []);
+  const lastWeek = useMemo(() => getSundayWeek(new Date(), -1), []);
 
   const isRC = activeTab === 'rc';
   const isGeneralTab = activeTab === 'orientation' || activeTab === 'expiry';
 
+  // Sync custom inputs whenever activeTab or props change
+  useEffect(() => {
+    setCustomStart(startDate);
+    setCustomEnd(endDate);
+    setShowCustom(false);
+  }, [activeTab, startDate, endDate]);
+
   const currentPreset = useMemo(() => {
     if (showCustom) return 'custom';
     if (isGeneralTab && (!startDate || startDate === 'all' || (!startDate && !endDate))) return 'all';
+    if (isRC && startDate === thisWeek.start && endDate === thisWeek.end) return 'thisWeek';
+    if (isRC && startDate === lastWeek.start && endDate === lastWeek.end) return 'lastWeek';
     if (startDate === todayStr && endDate === todayStr) return 'today';
     if (startDate === yesterdayStr && endDate === yesterdayStr) return 'yesterday';
     if (startDate === last7Str && endDate === todayStr) return 'last7';
     if (startDate === last30Str && endDate === todayStr) return 'last30';
     if (startDate === thisMonth.start && endDate === thisMonth.end) return 'thisMonth';
-    if (!startDate && !endDate) return isGeneralTab ? 'all' : 'today';
+    if (!startDate && !endDate) {
+      if (isGeneralTab) return 'all';
+      if (isRC) return 'thisWeek';
+      return 'today';
+    }
     return 'custom';
-  }, [startDate, endDate, todayStr, yesterdayStr, last7Str, last30Str, thisMonth, showCustom, isGeneralTab]);
+  }, [startDate, endDate, todayStr, yesterdayStr, last7Str, last30Str, thisMonth, thisWeek, lastWeek, showCustom, isGeneralTab, isRC]);
 
   const handleSelectChange = (val: string) => {
     if (val === 'all') {
@@ -145,6 +166,40 @@ export function FilterDropdownModule({
             <option value="custom">Custom Range...</option>
           </select>
         </div>
+
+        {/* Purpose Dropdown — next to Date Filter when on Daily Activity tab */}
+        {activeTab === 'daily' && allPurposes.length > 0 && onSelectPurpose && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            borderLeft: '1px solid var(--border)',
+            paddingLeft: 10,
+          }}>
+            <Filter size={14} color="var(--primary)" />
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)' }}>Purpose:</span>
+            <select
+              value={selectedPurpose}
+              onChange={e => onSelectPurpose(e.target.value)}
+              style={{
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontWeight: selectedPurpose ? 700 : 600,
+                color: selectedPurpose ? 'var(--primary)' : 'var(--text-1)',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              <option value="">All Purposes</option>
+              {allPurposes.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Custom Range Inputs */}
         {(showCustom || currentPreset === 'custom') && (

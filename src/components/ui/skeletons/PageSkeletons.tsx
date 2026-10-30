@@ -142,7 +142,7 @@ export function OrientationSkeleton() {
         justifyContent: 'flex-end',
         flexWrap: 'wrap',
         gap: '0.75rem',
-        marginBottom: '0.25rem',
+        marginBottom: '1.25rem',
       }}>
         <Skeleton width={150} height={34} borderRadius={8} />
         <Skeleton width={140} height={34} borderRadius={8} />
@@ -175,40 +175,33 @@ export function OrientationSkeleton() {
         ))}
       </div>
 
-      {/* Journey Volume Totals */}
-      <div>
-        <div style={{ marginBottom: '0.5rem' }}>
-          <span style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)', fontWeight: 700 }}>
-            Journey Volume Totals
-          </span>
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: '0.75rem',
-          marginBottom: '1.5rem',
-        }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              padding: '0.75rem 0.9rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.65rem',
-            }}>
-              <Skeleton width={32} height={32} borderRadius={8} style={{ flexShrink: 0 }} />
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <Skeleton width="60%" height={18} borderRadius={4} />
-                <Skeleton width="80%" height={10} borderRadius={3} />
-              </div>
+      {/* Funnel Volume Totals mini cards (6 items) */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+        gap: '0.75rem',
+        marginBottom: '1.5rem',
+      }}>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: '0.75rem 0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.65rem',
+          }}>
+            <Skeleton width={32} height={32} borderRadius={8} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Skeleton width="60%" height={18} borderRadius={4} />
+              <Skeleton width="80%" height={10} borderRadius={3} />
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
 
-      {/* Action Queue & Cubs Directory Table (8 cols matching OrientationStatsDashboard) */}
+      {/* Action Queue & Cubs Directory Table */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <SkeletonTable
           rows={8}
@@ -223,7 +216,7 @@ export function OrientationSkeleton() {
             { header: '', width: '6%', align: 'right' },
           ]}
           showSearch={true}
-          showFilters={true}
+          showFilters={<Skeleton width={200} height={34} borderRadius={8} />}
           rightAction={true}
           banner={(
             <div style={{
@@ -239,6 +232,15 @@ export function OrientationSkeleton() {
             </div>
           )}
         />
+        {/* Pagination Controls Skeleton */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0.25rem', marginTop: '0.5rem' }}>
+          <Skeleton width={120} height={14} borderRadius={4} />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Skeleton width={32} height={32} borderRadius={6} />
+            <Skeleton width={32} height={32} borderRadius={6} />
+            <Skeleton width={32} height={32} borderRadius={6} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -316,6 +318,12 @@ export function EngagementsSkeleton() {
           { label: 'Interactions Log', icon: <MessageCircle size={14} style={{ marginRight: 6 }} /> },
         ]}
       />
+
+      {/* Sub-tabs: Pending vs Completed Actions */}
+      <div style={{ display: 'flex', gap: 4, background: 'var(--bg-input)', padding: 3, borderRadius: 9, border: '1px solid var(--border)', width: 'fit-content', marginBottom: '1rem' }}>
+        <Skeleton width={100} height={30} borderRadius={7} />
+        <Skeleton width={110} height={30} borderRadius={7} />
+      </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <SkeletonTable
@@ -713,18 +721,16 @@ export function RCReportSkeleton() {
 // ─── 9d. Orientation Skeleton ───────────────────────────────────
 export function OrientationReportSkeleton() {
   const cards = [
-    { label: 'Total Gen Comm Cubs', labelW: 125, valW: 50, subW: 95 },
-    { label: 'Completed', labelW: 75, valW: 45, subW: 120 },
+    { label: 'Total Gen Comm Cubs', labelW: 125, valW: 50, subW: 135 },
+    { label: 'Completed', labelW: 75, valW: 45, subW: 140 },
     { label: 'Left (Not Completed)', labelW: 120, valW: 45, subW: 135 },
-    { label: 'In Progress', labelW: 75, valW: 45, subW: 90 },
-    { label: 'Not Started', labelW: 75, valW: 40, subW: 125 },
     { label: 'Show Rate', labelW: 70, valW: 50, subW: 120 },
   ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }} aria-hidden="true">
-      {/* 6 KPI Stat Cards Grid */}
-      <div className={sharedStyles.statsGrid} style={{ marginBottom: '1.5rem' }}>
+      {/* 4 KPI Stat Cards Grid — explicit 4 cols, no ghost empty column */}
+      <div className={sharedStyles.statsGrid} style={{ marginBottom: '1.5rem', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         {cards.map((c, i) => (
           <div key={i} className={sharedStyles.statCard} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
@@ -734,7 +740,14 @@ export function OrientationReportSkeleton() {
               </div>
               <Skeleton width={c.valW} height={28} borderRadius={6} style={{ marginTop: 6 }} />
             </div>
-            <Skeleton width={c.subW} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+            {i < 3 ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: 8 }}>
+                <Skeleton width={56} height={11} borderRadius={4} />
+                <Skeleton width={56} height={11} borderRadius={4} />
+              </div>
+            ) : (
+              <Skeleton width={c.subW} height={11} borderRadius={4} style={{ marginTop: 8 }} />
+            )}
           </div>
         ))}
       </div>
@@ -748,7 +761,7 @@ export function OrientationReportSkeleton() {
         </div>
       </div>
 
-      {/* 8-Column Rep Breakdown Table */}
+      {/* 6-Column Rep Breakdown Table */}
       <div style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
@@ -758,7 +771,7 @@ export function OrientationReportSkeleton() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-hover)' }}>
-              {['Rep', 'Total Gen Comm', 'Completed', 'Left (Pending)', 'In Progress', 'Not Started', 'Attended', 'Show Rate'].map((col, i) => (
+              {['Rep', 'Total Gen Comm', 'Completed', 'Left (Not Completed)', 'Attended', 'Show Rate'].map((col, i) => (
                 <th key={col} style={{ padding: '10px 14px', textAlign: i === 0 ? 'left' : 'center' }}>
                   <Skeleton width={i === 0 ? 50 : 60} height={11} borderRadius={4} style={{ display: 'inline-block' }} />
                 </th>
@@ -768,9 +781,9 @@ export function OrientationReportSkeleton() {
           <tbody>
             {Array.from({ length: 5 }).map((_, r) => (
               <tr key={r} style={{ borderBottom: '1px solid var(--border)' }}>
-                {Array.from({ length: 8 }).map((_, c) => (
+                {Array.from({ length: 6 }).map((_, c) => (
                   <td key={c} style={{ padding: '10px 14px', textAlign: c === 0 ? 'left' : 'center' }}>
-                    <Skeleton width={c === 0 ? 80 : 35} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
+                    <Skeleton width={c === 0 ? 80 : 50} height={12} borderRadius={4} style={{ display: 'inline-block' }} />
                   </td>
                 ))}
               </tr>

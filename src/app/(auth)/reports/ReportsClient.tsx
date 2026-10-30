@@ -91,8 +91,20 @@ export default function ReportsClient({
     activeTabRef.current = currentTab;
   }, [currentTab]);
 
-  const [start, setStart] = useState(startParam ?? dateParam ?? todayStr);
-  const [end, setEnd]     = useState(endParam ?? dateParam ?? todayStr);
+  const [selectedPurpose, setSelectedPurpose] = useState<string>('');
+
+  // Compute initial start/end: RC tab defaults to this week
+  const initialDates = useMemo(() => {
+    if (activeTab === 'rc' && !startParam && !endParam) {
+      const w = getSundayWeek();
+      return { start: w.start, end: w.end };
+    }
+    return { start: startParam ?? dateParam ?? todayStr, end: endParam ?? dateParam ?? todayStr };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [start, setStart] = useState(initialDates.start);
+  const [end, setEnd]     = useState(initialDates.end);
 
   const [dailyData, setDailyData] = useState<DailyActivityRow[] | null>(dailyActivity.length > 0 || activeTab === 'daily' ? dailyActivity : null);
   const [flagsData, setFlagsData] = useState<CallParentsReportData | null>(callParentsReport.summary.length > 0 || activeTab === 'flags' ? callParentsReport : null);
@@ -118,6 +130,9 @@ export default function ReportsClient({
   const setTab = useCallback((t: string) => {
     setCurrentTab(t);
     activeTabRef.current = t;
+
+    // Reset purpose filter when leaving daily tab
+    if (t !== 'daily') setSelectedPurpose('');
 
     let nextStart = start;
     let nextEnd = end;
@@ -256,6 +271,9 @@ export default function ReportsClient({
         startDate={start}
         endDate={end}
         onApplyRange={applyRange}
+        allPurposes={currentTab === 'daily' ? allPurposes : []}
+        selectedPurpose={selectedPurpose}
+        onSelectPurpose={(p) => { setSelectedPurpose(p); }}
       />
 
       {/* ── Tab Content or Exact Tab-Specific Skeleton Transition ── */}
@@ -263,7 +281,7 @@ export default function ReportsClient({
         <ReportsTabContentSkeleton tab={currentTab} />
       ) : (
         <>
-          {currentTab === 'daily'       && (dailyData ? <DailyActivityTab data={dailyData} startDate={start} endDate={end} allPurposes={allPurposes} repFilter={repFilter} /> : <ReportsTabContentSkeleton tab="daily" />)}
+          {currentTab === 'daily'       && (dailyData ? <DailyActivityTab data={dailyData} startDate={start} endDate={end} allPurposes={allPurposes} selectedPurpose={selectedPurpose} repFilter={repFilter} /> : <ReportsTabContentSkeleton tab="daily" />)}
           {currentTab === 'flags'       && (flagsData ? <FlagsCallParentsTab data={flagsData} /> : <ReportsTabContentSkeleton tab="flags" />)}
           {currentTab === 'rc'          && (rcData ? <RCReportTab data={rcData} startDate={start} endDate={end} /> : <ReportsTabContentSkeleton tab="rc" />)}
           {currentTab === 'orientation' && (orientationData ? <OrientationReportTab data={orientationData} /> : <ReportsTabContentSkeleton tab="orientation" />)}

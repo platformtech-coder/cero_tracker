@@ -638,47 +638,60 @@ export default function CubProfileDrawer({
                     activity.interactions.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)' }}>No interactions logged yet</div>
                     ) : (
-                      <div className={sharedStyles.timeline}>
-                        {activity.interactions.map(item => (
-                          <div key={item.id} className={sharedStyles.timelineItem}>
-                            <div className={sharedStyles.timelineDate}>{formatDate(item.date)}</div>
-                            <div className={sharedStyles.timelineContent}>
-                              <div className={sharedStyles.timelineHeader}>
-                                <strong>{item.type}</strong>
-                                <span className={sharedStyles.timelinePurpose}>({item.purpose})</span>
-                                <span className={sharedStyles.timelineRep}>by {item.handled_by}</span>
-                              </div>
-                              {item.feedback && <div className={sharedStyles.timelineFeedback}>{item.feedback}</div>}
-                              {item.action_required === 'Yes' && (
-                                <div className={sharedStyles.timelineAction}>
-                                  Action: {item.action} (Due: {item.action_deadline ? formatDate(item.action_deadline) : '—'})
-                                  <span className={`${sharedStyles.badge} ${sharedStyles.badgeOrange}`}>{item.action_status}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                        <table className={sharedStyles.table}>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Handled By</th>
+                              <th>Type</th>
+                              <th>Status</th>
+                              <th>Purpose</th>
+                              <th>Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activity.interactions.map(item => (
+                              <tr key={item.id}>
+                                <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{formatDate(item.date)}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{item.handled_by || '—'}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{item.type || '—'}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{item.status || '—'}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{item.purpose || '—'}</td>
+                                <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem', color: 'var(--text-2)' }} title={item.feedback ?? ''}>{item.feedback || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )
                   ) : (
                     activity.actions.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)' }}>No pending actions</div>
                     ) : (
-                      <div className={sharedStyles.timeline}>
-                        {activity.actions.map(action => (
-                          <div key={action.id} className={sharedStyles.timelineItem}>
-                            <div className={sharedStyles.timelineDate}>Due: {action.action_deadline ? formatDate(action.action_deadline) : '—'}</div>
-                            <div className={sharedStyles.timelineContent}>
-                              <div className={sharedStyles.timelineHeader}>
-                                <strong>{action.action}</strong>
-                                <span className={`${sharedStyles.badge} ${sharedStyles.badgeOrange}`}>{action.action_status}</span>
-                              </div>
-                              <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
-                                Assigned to {action.handled_by} · Purpose: {action.purpose}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                        <table className={sharedStyles.table}>
+                          <thead>
+                            <tr>
+                              <th>Deadline</th>
+                              <th>Handled By</th>
+                              <th>Purpose</th>
+                              <th>Action</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activity.actions.map(action => (
+                              <tr key={action.id}>
+                                <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{action.action_deadline ? formatDate(action.action_deadline) : '—'}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{action.handled_by || '—'}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{action.purpose || '—'}</td>
+                                <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={action.action ?? ''}>{action.action || '—'}</td>
+                                <td style={{ whiteSpace: 'nowrap' }}>{action.action_status || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )
                   )}
@@ -689,26 +702,36 @@ export default function CubProfileDrawer({
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                   {!activity.email_history ? (
                     <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)' }}>No email history found</div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div className={sharedStyles.drawerSection}>
-                        <div className={sharedStyles.drawerSectionTitle}>Summary</div>
-                        <div className={sharedStyles.statChips}>
-                          <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal}>{activity.email_history.total_sent || 0}</div><div className={sharedStyles.statChipLbl}>Total Sent</div></div>
-                          <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal}>{activity.email_history.open_rate || '0%'}</div><div className={sharedStyles.statChipLbl}>Open Rate</div></div>
-                          <div className={sharedStyles.statChip}><div className={sharedStyles.statChipVal}>{activity.email_history.click_rate || '0%'}</div><div className={sharedStyles.statChipLbl}>Click Rate</div></div>
-                        </div>
+                  ) : (() => {
+                    const eh = activity.email_history;
+                    const msgs = [1,2,3,4,5,6,7]
+                      .map(n => ({ date: eh[`msg_${n}_date`], type: eh[`msg_${n}_type`], n }))
+                      .filter(m => m.date || m.type);
+                    return msgs.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)' }}>No email entries found</div>
+                    ) : (
+                      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                        <table className={sharedStyles.table}>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Date</th>
+                              <th>Type</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {msgs.map(m => (
+                              <tr key={m.n}>
+                                <td style={{ color: 'var(--text-3)', fontSize: '0.78rem' }}>{m.n}</td>
+                                <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{m.date ? formatDate(m.date) : '—'}</td>
+                                <td>{m.type || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                      <div className={sharedStyles.drawerSection}>
-                        <div className={sharedStyles.drawerSectionTitle}>Last Email</div>
-                        <div style={{ background: 'var(--bg-input)', padding: 12, borderRadius: 8, fontSize: 13 }}>
-                          <div><strong>Subject:</strong> {activity.email_history.last_email_subject || '—'}</div>
-                          <div style={{ marginTop: 4, color: 'var(--text-2)' }}><strong>Date:</strong> {activity.email_history.last_email_date ? formatDate(activity.email_history.last_email_date) : '—'}</div>
-                          <div style={{ marginTop: 4, color: 'var(--text-2)' }}><strong>Status:</strong> {activity.email_history.last_email_status || '—'}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
 

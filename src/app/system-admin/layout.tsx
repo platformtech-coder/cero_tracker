@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Terminal, Shield, LogOut } from 'lucide-react';
+import Image from 'next/image';
+import { Shield, LogOut } from 'lucide-react';
 import { Toaster } from 'sonner';
 
 export default function SystemAdminLayout({ children }: { children: React.ReactNode }) {
@@ -58,9 +59,7 @@ export default function SystemAdminLayout({ children }: { children: React.ReactN
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Terminal size={24} style={{ color: 'var(--primary)' }} />
-          </div>
+          <Image src="/logo.png" alt="PerbiCubs Logo" width={56} height={56} priority style={{ objectFit: 'contain' }} />
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>Verifying System Access...</div>
         </div>
       </div>

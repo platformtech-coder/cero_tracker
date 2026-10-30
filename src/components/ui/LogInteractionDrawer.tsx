@@ -531,7 +531,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                       {history.length > 0 ? (
                         history.map((h: any) => (
                           <tr key={h.id}>
-                            <td>{new Date(h.date).toLocaleDateString('en-GB')}</td>
+                            <td>{formatDate(h.date)}</td>
                             <td>{h.handled_by || '—'}</td>
                             <td>{h.type || '—'}</td>
                             <td>{h.status || '—'}</td>
