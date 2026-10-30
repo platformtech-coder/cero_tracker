@@ -28,7 +28,7 @@ import {
   simulateSystemLog,
 } from "@/lib/actions/system-admin";
 import { migrateReadingCircleData } from "@/lib/actions/rc-migration";
-import { saveFormsPartialConfig, rebuildForms } from "@/lib/actions/forms";
+import { saveFormsPartialConfig, rebuildForms, type FormRebuildTarget } from "@/lib/actions/forms";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   KNOWN_ORI_SESSION_ITEM_ID,
@@ -156,6 +156,7 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
   );
   const [savingFormKey, setSavingFormKey] = useState<string | null>(null);
   const [isRebuildingForms, setIsRebuildingForms] = useState(false);
+  const [rebuildingFormTarget, setRebuildingFormTarget] = useState<FormRebuildTarget | null>(null);
   const [isMigratingRC, setIsMigratingRC] = useState(false);
   const [rcMigrationResult, setRcMigrationResult] = useState<{
     success: boolean;
@@ -433,19 +434,27 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
     }
   };
 
-  const handleRebuildForms = async () => {
+  const handleRebuildForms = async (target: FormRebuildTarget = "all") => {
     setIsRebuildingForms(true);
+    setRebuildingFormTarget(target);
+    const targetLabel =
+      target === "orientation"
+        ? "Orientation Form"
+        : target === "reading-circle"
+        ? "Reading Circle Form"
+        : "Both Google Forms";
     try {
-      const res = await rebuildForms();
+      const res = await rebuildForms(target);
       if (res.success) {
-        toast.success("Both Google Forms rebuilt successfully with active sessions!");
+        toast.success(`${targetLabel} rebuilt successfully with active sessions!`);
       } else {
         toast.error("Rebuild failed: " + (res.error ?? "Unknown error"));
       }
     } catch (e: any) {
-      toast.error("Error rebuilding forms: " + e.message);
+      toast.error("Error rebuilding form: " + e.message);
     } finally {
       setIsRebuildingForms(false);
+      setRebuildingFormTarget(null);
     }
   };
 
@@ -653,6 +662,7 @@ export default function SystemAdminClient({ overview: init, formsConfig }: Props
             savingSheet={savingSheet}
             handleSheetSave={handleSheetSave}
             isRebuildingForms={isRebuildingForms}
+            rebuildingFormTarget={rebuildingFormTarget}
             handleRebuildForms={handleRebuildForms}
             oriFormId={oriFormId}
             setOriFormId={setOriFormId}

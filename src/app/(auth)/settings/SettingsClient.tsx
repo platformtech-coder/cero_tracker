@@ -11,7 +11,7 @@ import {
   deleteUser,
   updateUserProfile,
 } from '@/lib/actions/settings';
-import { saveFormsConfig, saveFormsPartialConfig, rebuildForms } from '@/lib/actions/forms';
+import { saveFormsConfig, saveFormsPartialConfig, rebuildForms, type FormRebuildTarget } from '@/lib/actions/forms';
 import type { FormsConfig, SessionConfig, GradeMappingEntry } from '@/lib/constants/forms';
 import {
   KNOWN_ORI_SESSION_ITEM_ID,
@@ -281,9 +281,19 @@ function GradeMappingBuilder({
 
 // ─── RC & Ori Sessions Tab ──────────────────────────────────────
 function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
-  const [isPending, startTransition] = useTransition();
-  const [isRebuilding, setIsRebuilding] = useState(false);
-  const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
+  const [, startTransition] = useTransition();
+
+  // Saving states
+  const [isSavingOri, setIsSavingOri] = useState(false);
+  const [isSavingRC, setIsSavingRC] = useState(false);
+
+  // Rebuilding states
+  const [isRebuildingOri, setIsRebuildingOri] = useState(false);
+  const [isRebuildingRC, setIsRebuildingRC] = useState(false);
+  const [isRebuildingAll, setIsRebuildingAll] = useState(false);
+
+  // Rebuild modal target ('orientation' | 'reading-circle' | 'all' | null)
+  const [rebuildTarget, setRebuildTarget] = useState<FormRebuildTarget | null>(null);
 
   // Sessions state
   const [oriSessions, setOriSessions] = useState<SessionConfig[]>(initialConfig.oriSessions);
@@ -293,9 +303,12 @@ function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
   const [rcCategoryUpper, setRcCategoryUpper] = useState(initialConfig.rcCategoryUpper);
   const [gradeMapping, setGradeMapping] = useState<GradeMappingEntry[]>(initialConfig.rcGradeMapping);
 
-  // Build the partial config for sessions (form IDs and item IDs remain untouched in DB)
-  const getSessionPayload = (): Partial<FormsConfig> => ({
+  // Payload builders
+  const getOriPayload = (): Partial<FormsConfig> => ({
     oriSessions,
+  });
+
+  const getRCPayload = (): Partial<FormsConfig> => ({
     rcSessionsLower,
     rcSessionsUpper,
     rcCategoryLower: rcCategoryLower.trim(),
@@ -306,59 +319,143 @@ function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
     }),
   });
 
-  const handleSave = () => {
+  // Save Orientation Only
+  const handleSaveOri = () => {
+    setIsSavingOri(true);
     startTransition(async () => {
-      const res = await saveFormsPartialConfig(getSessionPayload());
-      if (res.success) toast.success('Session settings saved!');
-      else toast.error('Save failed: ' + res.error);
+      try {
+        const res = await saveFormsPartialConfig(getOriPayload());
+        if (res.success) toast.success('Orientation session settings saved!');
+        else toast.error('Save failed: ' + res.error);
+      } catch (e: any) {
+        toast.error('Error saving: ' + e.message);
+      } finally {
+        setIsSavingOri(false);
+      }
     });
   };
 
+  // Save Reading Circle Only
+  const handleSaveRC = () => {
+    setIsSavingRC(true);
+    startTransition(async () => {
+      try {
+        const res = await saveFormsPartialConfig(getRCPayload());
+        if (res.success) toast.success('Reading Circle session settings saved!');
+        else toast.error('Save failed: ' + res.error);
+      } catch (e: any) {
+        toast.error('Error saving: ' + e.message);
+      } finally {
+        setIsSavingRC(false);
+      }
+    });
+  };
+
+  // Confirm Rebuild Handler (Targeted)
   const handleRebuildConfirm = async () => {
-    setIsRebuilding(true);
+    if (!rebuildTarget) return;
+
+    if (rebuildTarget === 'orientation') {
+      setIsRebuildingOri(true);
+    } else if (rebuildTarget === 'reading-circle') {
+      setIsRebuildingRC(true);
+    } else {
+      setIsRebuildingAll(true);
+    }
+
     try {
-      await saveFormsPartialConfig(getSessionPayload());
-      const res = await rebuildForms();
-      if (res.success) toast.success('Both Google Forms rebuilt successfully!');
-      else toast.error('Rebuild failed: ' + res.error);
+      // 1. Auto-save corresponding form settings before rebuilding
+      if (rebuildTarget === 'orientation') {
+        await saveFormsPartialConfig(getOriPayload());
+      } else if (rebuildTarget === 'reading-circle') {
+        await saveFormsPartialConfig(getRCPayload());
+      } else {
+        await saveFormsPartialConfig({
+          ...getOriPayload(),
+          ...getRCPayload(),
+        });
+      }
+
+      // 2. Rebuild the targeted form only
+      const res = await rebuildForms(rebuildTarget);
+      if (res.success) {
+        const label =
+          rebuildTarget === 'orientation'
+            ? 'Orientation Google Form rebuilt successfully!'
+            : rebuildTarget === 'reading-circle'
+            ? 'Reading Circle Google Form rebuilt successfully!'
+            : 'Both Google Forms rebuilt successfully!';
+        toast.success(label);
+      } else {
+        toast.error('Rebuild failed: ' + res.error);
+      }
     } catch (e: any) {
-      toast.error('Error: ' + e.message);
+      toast.error('Error rebuilding form: ' + e.message);
     } finally {
-      setIsRebuilding(false);
-      setShowRebuildConfirm(false);
+      setIsRebuildingOri(false);
+      setIsRebuildingRC(false);
+      setIsRebuildingAll(false);
+      setRebuildTarget(null);
     }
   };
 
-  const sectionCard = (title: string, subtitle: string | undefined, children: React.ReactNode) => (
+  const getModalDetails = () => {
+    if (rebuildTarget === 'orientation') {
+      return {
+        title: 'Rebuild Orientation Google Form?',
+        message: 'This will save the current Orientation sessions and overwrite the session options on the live Google Form with the rolling next upcoming dates. Reading Circle form will NOT be touched. Continue?',
+      };
+    }
+    if (rebuildTarget === 'reading-circle') {
+      return {
+        title: 'Rebuild Reading Circle Google Form?',
+        message: 'This will save the current Reading Circle sessions and grade mappings, and overwrite the dropdown options on the live Reading Circle Google Form. Orientation form will NOT be touched. Continue?',
+      };
+    }
+    return {
+      title: 'Rebuild Both Google Forms?',
+      message: 'This will connect to Google and overwrite the dropdown options on BOTH Orientation and Reading Circle forms with the current sessions. Continue?',
+    };
+  };
+
+  const sectionCard = (
+    title: string,
+    subtitle: string | undefined,
+    children: React.ReactNode,
+    headerActions?: React.ReactNode
+  ) => (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12 }}>
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
-        {subtitle && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{subtitle}</div>}
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{subtitle}</div>}
+        </div>
+        {headerActions && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {headerActions}
+          </div>
+        )}
       </div>
       <div style={{ padding: 20 }}>{children}</div>
     </div>
   );
 
+  const isAnyActionPending = isSavingOri || isSavingRC || isRebuildingOri || isRebuildingRC || isRebuildingAll;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button
-            onClick={handleSave}
-            disabled={isPending}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', color: 'var(--text-2)', opacity: isPending ? 0.7 : 1 }}
-          >
-            <Save size={14} /> {isPending ? 'Saving…' : 'Save Settings'}
-          </button>
-          <button
-            onClick={() => setShowRebuildConfirm(true)}
-            disabled={isRebuilding || isPending}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: isRebuilding ? 0.7 : 1 }}
-          >
-            <Wrench size={14} /> {isRebuilding ? 'Rebuilding…' : 'Rebuild Forms Now'}
-          </button>
+      {/* Top Banner with Secondary Global Action */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          Manage session schedules. Each form has its own independent <strong>Save</strong> and <strong>Rebuild</strong> buttons below.
         </div>
+        <button
+          onClick={() => setRebuildTarget('all')}
+          disabled={isAnyActionPending}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isRebuildingAll ? 0.7 : 1 }}
+        >
+          <Wrench size={13} /> {isRebuildingAll ? 'Rebuilding Both…' : 'Rebuild Both Forms'}
+        </button>
       </div>
 
       {/* ── Orientation Sessions ── */}
@@ -370,7 +467,35 @@ function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
           onChange={setOriSessions}
           addLabel="Add Orientation Session"
           hint={`Example output on rebuild: "Tuesday (13-Oct) 7:00 pm – 8:00 pm"`}
-        />
+        />,
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={handleSaveOri}
+            disabled={isSavingOri || isRebuildingOri}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', background: 'var(--bg-card)',
+              border: '1px solid var(--border)', borderRadius: 8,
+              fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              color: 'var(--text-1)', opacity: isSavingOri ? 0.7 : 1
+            }}
+          >
+            <Save size={13} /> {isSavingOri ? 'Saving…' : 'Save Orientation'}
+          </button>
+          <button
+            onClick={() => setRebuildTarget('orientation')}
+            disabled={isRebuildingOri || isSavingOri}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', background: 'var(--primary)',
+              color: '#fff', border: 'none', borderRadius: 8,
+              fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              opacity: isRebuildingOri ? 0.7 : 1
+            }}
+          >
+            <Wrench size={13} /> {isRebuildingOri ? 'Rebuilding…' : 'Rebuild Orientation Form'}
+          </button>
+        </div>
       )}
 
       {/* ── Reading Circle Sessions ── */}
@@ -411,13 +536,41 @@ function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
             </div>
             <SessionBuilder sessions={rcSessionsUpper} onChange={setRcSessionsUpper} addLabel="Add Session (Upper)" />
           </div>
+        </div>,
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={handleSaveRC}
+            disabled={isSavingRC || isRebuildingRC}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', background: 'var(--bg-card)',
+              border: '1px solid var(--border)', borderRadius: 8,
+              fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              color: 'var(--text-1)', opacity: isSavingRC ? 0.7 : 1
+            }}
+          >
+            <Save size={13} /> {isSavingRC ? 'Saving…' : 'Save Reading Circle'}
+          </button>
+          <button
+            onClick={() => setRebuildTarget('reading-circle')}
+            disabled={isRebuildingRC || isSavingRC}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', background: 'var(--green)',
+              color: '#fff', border: 'none', borderRadius: 8,
+              fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              opacity: isRebuildingRC ? 0.7 : 1
+            }}
+          >
+            <Wrench size={13} /> {isRebuildingRC ? 'Rebuilding…' : 'Rebuild Reading Circle Form'}
+          </button>
         </div>
       )}
 
       {/* ── Grade Mapping ── */}
       {sectionCard(
         '🔀 Grade-to-Session Mapping',
-        'Force a specific grade to a designated session, overriding their form choice',
+        'Force a specific grade to a designated session, overriding their form choice (saved and applied with Reading Circle)',
         <GradeMappingBuilder
           mapping={gradeMapping}
           onChange={setGradeMapping}
@@ -428,14 +581,14 @@ function SessionsTab({ initialConfig }: { initialConfig: FormsConfig }) {
 
       {/* Rebuild Confirmation Modal */}
       <ConfirmModal
-        isOpen={showRebuildConfirm}
-        onClose={() => setShowRebuildConfirm(false)}
+        isOpen={rebuildTarget !== null}
+        onClose={() => setRebuildTarget(null)}
         onConfirm={handleRebuildConfirm}
-        title="Rebuild Google Forms?"
-        message="This will connect to Google and overwrite the dropdown options on both Orientation and Reading Circle forms with the current sessions. Continue?"
-        confirmText="Rebuild"
+        title={getModalDetails().title}
+        message={getModalDetails().message}
+        confirmText="Rebuild Now"
         variant="primary"
-        isLoading={isRebuilding}
+        isLoading={isRebuildingOri || isRebuildingRC || isRebuildingAll}
       />
     </div>
   );

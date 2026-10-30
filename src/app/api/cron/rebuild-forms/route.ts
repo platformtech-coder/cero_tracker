@@ -25,7 +25,9 @@ async function handleRebuild(req: NextRequest) {
   }
 
   try {
-    const res = await executeRebuildForms();
+    const targetParam = req.nextUrl.searchParams.get('target') || req.nextUrl.searchParams.get('form');
+    const target = targetParam === 'orientation' || targetParam === 'reading-circle' ? targetParam : 'all';
+    const res = await executeRebuildForms(target);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 500 });
     }

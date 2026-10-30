@@ -265,7 +265,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await executeRebuildForms();
+    const targetParam = req.nextUrl.searchParams.get('target') || req.nextUrl.searchParams.get('form');
+    const target = targetParam === 'orientation' || targetParam === 'reading-circle' ? targetParam : 'all';
+    const res = await executeRebuildForms(target);
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 500 });
     }
@@ -321,7 +323,9 @@ export async function POST(req: NextRequest) {
   // Handle rebuild request
   if (payload.action === 'rebuild') {
     try {
-      const res = await executeRebuildForms();
+      const targetParam = payload.target || payload.form;
+      const target = targetParam === 'orientation' || targetParam === 'reading-circle' ? targetParam : 'all';
+      const res = await executeRebuildForms(target);
       return NextResponse.json(res);
     } catch (err: any) {
       return NextResponse.json({ success: false, error: err.message }, { status: 500 });

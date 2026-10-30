@@ -129,13 +129,58 @@ export async function saveFormsConfig(config: FormsConfig) {
   return { success: true };
 }
 
+export type FormRebuildTarget = 'all' | 'orientation' | 'reading-circle';
+
 export async function saveFormsPartialConfig(partial: Partial<FormsConfig>) {
-  const current = await getFormsConfigInternal();
-  const merged: FormsConfig = {
-    ...current,
-    ...partial,
-  };
-  return saveFormsConfig(merged);
+  const callerEmail = await requireAdminOrSuperAdmin();
+  const supabase = getServiceClient();
+
+  const rows: { key: string; value: string; updated_at: string; updated_by: string }[] = [];
+  const now = new Date().toISOString();
+
+  if (partial.oriFormId !== undefined) {
+    rows.push({ key: 'forms_orientation_form_id', value: partial.oriFormId, updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.oriSessionItemId !== undefined) {
+    rows.push({ key: 'forms_orientation_session_item_id', value: partial.oriSessionItemId, updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.oriSessions !== undefined) {
+    rows.push({ key: 'forms_orientation_sessions', value: JSON.stringify(partial.oriSessions), updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcFormId !== undefined) {
+    rows.push({ key: 'forms_rc_form_id', value: partial.rcFormId, updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcSessionsLower !== undefined) {
+    rows.push({ key: 'forms_rc_sessions_lower', value: JSON.stringify(partial.rcSessionsLower), updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcSessionsUpper !== undefined) {
+    rows.push({ key: 'forms_rc_sessions_upper', value: JSON.stringify(partial.rcSessionsUpper), updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcCategoryLower !== undefined) {
+    rows.push({ key: 'forms_rc_category_lower', value: partial.rcCategoryLower, updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcCategoryUpper !== undefined) {
+    rows.push({ key: 'forms_rc_category_upper', value: partial.rcCategoryUpper, updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcGradeMapping !== undefined) {
+    rows.push({ key: 'forms_rc_grade_mapping', value: JSON.stringify(partial.rcGradeMapping), updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcLowerItemIds !== undefined) {
+    rows.push({ key: 'forms_rc_lower_item_ids', value: JSON.stringify(partial.rcLowerItemIds), updated_at: now, updated_by: callerEmail });
+  }
+  if (partial.rcUpperItemIds !== undefined) {
+    rows.push({ key: 'forms_rc_upper_item_ids', value: JSON.stringify(partial.rcUpperItemIds), updated_at: now, updated_by: callerEmail });
+  }
+
+  if (rows.length === 0) return { success: true };
+
+  const { error } = await supabase.from('app_config').upsert(rows, { onConflict: 'key' });
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath('/system-admin');
+  revalidatePath('/settings');
+  updateTag('rc-sessions');
+  return { success: true };
 }
 
 
@@ -176,7 +221,7 @@ export async function getFormsConfigForAdmin(): Promise<FormsConfig> {
 }
 
 
-export async function executeRebuildForms(): Promise<{ success: boolean; error?: string }> {
+export async function executeRebuildForms(target: FormRebuildTarget = 'all'): Promise<{ success: boolean; error?: string }> {
   const config = await getFormsConfigInternal();
   const auth = getGoogleAuth();
   const forms = google.forms({ version: 'v1', auth });
@@ -202,37 +247,50 @@ export async function executeRebuildForms(): Promise<{ success: boolean; error?:
     }
   }
 
+  const shouldRebuildOri = target === 'all' || target === 'orientation';
+  const shouldRebuildRC = target === 'all' || target === 'reading-circle';
+
   // ── Orientation ──────────────────────────────────────────────
-  if (config.oriFormId && config.oriSessions.length > 0) {
-    try {
-      const oriOptions = generateRollingDates(config.oriSessions);
-      await updateFormQuestions(config.oriFormId, [
-        { itemId: config.oriSessionItemId, options: oriOptions },
-      ]);
-    } catch (e: any) {
-      errors.push(`Orientation form: ${e.message}`);
+  if (shouldRebuildOri) {
+    if (!config.oriFormId) {
+      errors.push('Orientation form ID is not configured.');
+    } else if (config.oriSessions.length === 0) {
+      errors.push('No orientation sessions configured to rebuild.');
+    } else {
+      try {
+        const oriOptions = generateRollingDates(config.oriSessions);
+        await updateFormQuestions(config.oriFormId, [
+          { itemId: config.oriSessionItemId, options: oriOptions },
+        ]);
+      } catch (e: any) {
+        errors.push(`Orientation form: ${e.message}`);
+      }
     }
   }
 
   // ── Reading Circle ────────────────────────────────────────────
-  if (config.rcFormId) {
-    try {
-      const lowerOptions = formatRCSessions(config.rcSessionsLower);
-      const upperOptions = formatRCSessions(config.rcSessionsUpper);
-      const items: { itemId: string; options: string[] }[] = [];
+  if (shouldRebuildRC) {
+    if (!config.rcFormId) {
+      errors.push('Reading Circle form ID is not configured.');
+    } else {
+      try {
+        const lowerOptions = formatRCSessions(config.rcSessionsLower);
+        const upperOptions = formatRCSessions(config.rcSessionsUpper);
+        const items: { itemId: string; options: string[] }[] = [];
 
-      if (lowerOptions.length > 0) {
-        config.rcLowerItemIds.forEach(id => items.push({ itemId: id, options: lowerOptions }));
-      }
-      if (upperOptions.length > 0) {
-        config.rcUpperItemIds.forEach(id => items.push({ itemId: id, options: upperOptions }));
-      }
+        if (lowerOptions.length > 0) {
+          config.rcLowerItemIds.forEach(id => items.push({ itemId: id, options: lowerOptions }));
+        }
+        if (upperOptions.length > 0) {
+          config.rcUpperItemIds.forEach(id => items.push({ itemId: id, options: upperOptions }));
+        }
 
-      if (items.length > 0) {
-        await updateFormQuestions(config.rcFormId, items);
+        if (items.length > 0) {
+          await updateFormQuestions(config.rcFormId, items);
+        }
+      } catch (e: any) {
+        errors.push(`Reading Circle form: ${e.message}`);
       }
-    } catch (e: any) {
-      errors.push(`Reading Circle form: ${e.message}`);
     }
   }
 
@@ -240,7 +298,7 @@ export async function executeRebuildForms(): Promise<{ success: boolean; error?:
   return { success: true };
 }
 
-export async function rebuildForms() {
+export async function rebuildForms(target: FormRebuildTarget = 'all') {
   await requireAdminOrSuperAdmin();
-  return executeRebuildForms();
+  return executeRebuildForms(target);
 }

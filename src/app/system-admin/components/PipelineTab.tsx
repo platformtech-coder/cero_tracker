@@ -18,6 +18,7 @@ import type { Overview, AuditEntry } from "./types";
 import { SHEETS_CONFIG, StatusBadge, fmtTime } from "./types";
 import { SheetCard } from "./SheetCard";
 import sharedStyles from "@/components/ui/dashboard.module.css";
+import type { FormRebuildTarget } from "@/lib/actions/forms";
 
 export interface PipelineTabProps {
   pipelineSubTab: "sync" | "config";
@@ -41,7 +42,8 @@ export interface PipelineTabProps {
     tab: string
   ) => Promise<void>;
   isRebuildingForms: boolean;
-  handleRebuildForms: () => Promise<void>;
+  rebuildingFormTarget?: FormRebuildTarget | null;
+  handleRebuildForms: (target?: FormRebuildTarget) => Promise<void>;
   oriFormId: string;
   setOriFormId: (v: string) => void;
   oriSessionItemId: string;
@@ -73,6 +75,7 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({
   savingSheet,
   handleSheetSave,
   isRebuildingForms,
+  rebuildingFormTarget,
   handleRebuildForms,
   oriFormId,
   setOriFormId,
@@ -580,16 +583,16 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({
                 </div>
               </div>
               <button
-                onClick={handleRebuildForms}
+                onClick={() => handleRebuildForms("all")}
                 disabled={isRebuildingForms}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
                   padding: "7px 16px",
-                  background: "var(--primary)",
-                  color: "#fff",
-                  border: "none",
+                  background: "transparent",
+                  color: "var(--text-2)",
+                  border: "1px solid var(--border)",
                   borderRadius: 8,
                   fontWeight: 600,
                   fontSize: 12,
@@ -597,7 +600,7 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({
                   opacity: isRebuildingForms ? 0.7 : 1,
                 }}
               >
-                <Wrench size={13} /> {isRebuildingForms ? "Rebuilding Forms…" : "Rebuild Google Forms Now"}
+                <Wrench size={13} /> {isRebuildingForms && rebuildingFormTarget === "all" ? "Rebuilding Both Forms…" : "Rebuild Both Google Forms"}
               </button>
             </div>
 
@@ -757,6 +760,26 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({
                       }}
                     >
                       <Save size={12} /> {savingFormKey === "ori" ? "Saving…" : "Save Orientation Form"}
+                    </button>
+                    <button
+                      onClick={() => handleRebuildForms("orientation")}
+                      disabled={isRebuildingForms}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "7px 14px",
+                        background: "var(--primary)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        opacity: isRebuildingForms ? 0.7 : 1,
+                      }}
+                    >
+                      <Wrench size={12} /> {isRebuildingForms && rebuildingFormTarget === "orientation" ? "Rebuilding…" : "Rebuild Orientation Form"}
                     </button>
                     {oriFormId && (
                       <a
@@ -965,6 +988,26 @@ export const PipelineTab: React.FC<PipelineTabProps> = ({
                       }}
                     >
                       <Save size={12} /> {savingFormKey === "rc" ? "Saving…" : "Save RC Form"}
+                    </button>
+                    <button
+                      onClick={() => handleRebuildForms("reading-circle")}
+                      disabled={isRebuildingForms}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "7px 14px",
+                        background: "var(--green)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        opacity: isRebuildingForms ? 0.7 : 1,
+                      }}
+                    >
+                      <Wrench size={12} /> {isRebuildingForms && rebuildingFormTarget === "reading-circle" ? "Rebuilding…" : "Rebuild Reading Circle Form"}
                     </button>
                     {rcFormId && (
                       <a
