@@ -189,19 +189,42 @@ export async function getReadingCircleRoster(repFilter?: string): Promise<(Readi
 }
 
 // ─── Get RC Attendance for a specific date + session ──────────
-export async function getRCAttendance(attendanceDate: string, session: string) {
+export async function getRCAttendance(attendanceDate: string, session: string, cubIds?: string[]) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data, error } = await supabase
+  // Fetch records matching the session name on attendanceDate
+  const { data: sessionData, error: err1 } = await supabase
     .from('rc_attendance')
-    .select('cub_id, status')
+    .select('cub_id, status, session')
     .eq('attendance_date', attendanceDate)
     .eq('session', session);
 
-  if (error) throw new Error(error.message);
-  return (data ?? []) as { cub_id: string; status: string }[];
+  if (err1) throw new Error(err1.message);
+
+  let results = (sessionData ?? []) as { cub_id: string; status: string; session: string }[];
+
+  // If specific cubIds belonging to this circle were passed, check if any were recorded under
+  // a slight session variant or without session match
+  if (cubIds && cubIds.length > 0) {
+    const existingCubIds = new Set(results.map(r => r.cub_id));
+    const missingCubIds = cubIds.filter(id => !existingCubIds.has(id));
+
+    if (missingCubIds.length > 0) {
+      const { data: cubData, error: err2 } = await supabase
+        .from('rc_attendance')
+        .select('cub_id, status, session')
+        .eq('attendance_date', attendanceDate)
+        .in('cub_id', missingCubIds);
+
+      if (!err2 && cubData && cubData.length > 0) {
+        results = [...results, ...(cubData as { cub_id: string; status: string; session: string }[])];
+      }
+    }
+  }
+
+  return results;
 }
 
 // ─── Get Pending Signups (RC) ──────────────────────────────────
@@ -347,6 +370,7 @@ const RCAttendanceSchema = z.object({
     cub_id: z.string(),
     status: z.enum(['Present', 'Absent', 'Rescheduled']),
   })),
+  allSessionCubIds: z.array(z.string()).optional(),
 });
 
 export async function submitRCAttendance(formData: z.infer<typeof RCAttendanceSchema>) {
@@ -357,10 +381,29 @@ export async function submitRCAttendance(formData: z.infer<typeof RCAttendanceSc
   const parsed = RCAttendanceSchema.safeParse(formData);
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  const { attendance_date, session, records } = parsed.data;
+  const { attendance_date, session, records, allSessionCubIds } = parsed.data;
   if (records.length === 0) return { error: 'No records to submit' };
 
-  // 1. Upsert attendance records (idempotent via unique constraint on cub_id+date)
+  // 1. If any cub in this session was previously recorded on this date but is now unmarked,
+  // delete their attendance record so the session is cleanly rewritten
+  if (allSessionCubIds && allSessionCubIds.length > 0) {
+    const markedCubIds = new Set(records.map(r => r.cub_id));
+    const unmarkedCubIds = allSessionCubIds.filter(id => !markedCubIds.has(id));
+
+    if (unmarkedCubIds.length > 0) {
+      const { error: delErr } = await supabase
+        .from('rc_attendance')
+        .delete()
+        .eq('attendance_date', attendance_date)
+        .in('cub_id', unmarkedCubIds);
+
+      if (delErr) {
+        console.error('Failed to clear unmarked attendance records:', delErr);
+      }
+    }
+  }
+
+  // 2. Upsert attendance records (idempotent via unique constraint on cub_id+date)
   const { error: upsertErr } = await supabase
     .from('rc_attendance')
     .upsert(

@@ -658,10 +658,7 @@ export default function ReadingCircleClient({
                 </select>                <button
                   className={`${sharedStyles.btn} ${sharedStyles.btnPrimary}`}
                   onClick={() => {
-                    const defaultSession = sessionFilter ||
-                      roster.find(r => r.selected_session && sessions.includes(r.selected_session))?.selected_session ||
-                      sessions[0] || '';
-                    setAttendanceSession(defaultSession);
+                    setAttendanceSession(sessionFilter || '');
                     setIsAttendanceDrawerOpen(true);
                   }}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' }}

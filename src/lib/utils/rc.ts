@@ -132,3 +132,126 @@ export function sortRCSessions(sessions: string[]): string[] {
   return normalized.sort((a, b) => compareRCSessionStrings(a, b));
 }
 
+export const DAY_NAME_TO_INDEX: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+export const INDEX_TO_DAY_NAME = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/**
+ * Returns YYYY-MM-DD for local date (avoids UTC timezone shift bugs)
+ */
+export function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Parses YYYY-MM-DD as local midnight date (avoids UTC parsing shift)
+ */
+export function parseLocalDate(dateStr: string): Date {
+  if (!dateStr) return new Date();
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return new Date();
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+/**
+ * Sorts and deduplicates Reading Circle session strings starting from a specific day of the week,
+ * then chronologically by time.
+ */
+export function sortRCSessionsFromDay(sessions: string[], startDay: string | number): string[] {
+  const startIdx = typeof startDay === 'number'
+    ? ((startDay % 7) + 7) % 7
+    : (DAY_NAME_TO_INDEX[startDay.toLowerCase().replace(/s$/, '')] ?? 0);
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const raw of sessions) {
+    const s = normalizeSessionName(raw);
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      normalized.push(s);
+    }
+  }
+
+  return normalized.sort((a, b) => {
+    const dayA = extractSessionDay(a).toLowerCase();
+    const dayB = extractSessionDay(b).toLowerCase();
+    const idxA = DAY_NAME_TO_INDEX[dayA] ?? 99;
+    const idxB = DAY_NAME_TO_INDEX[dayB] ?? 99;
+
+    const relA = (idxA - startIdx + 7) % 7;
+    const relB = (idxB - startIdx + 7) % 7;
+
+    if (relA !== relB) return relA - relB;
+    return parseSessionTimeToMinutes(a) - parseSessionTimeToMinutes(b);
+  });
+}
+
+/**
+ * Smart session selector for RC Attendance:
+ * 1. Finds sessions on targetDate's day of the week.
+ * 2. If targetDate is today, finds the next upcoming or ongoing session based on current time.
+ * 3. If all sessions today have passed, returns the first session of that day.
+ * 4. If targetDate has no sessions, finds the first session of the next upcoming day that has sessions.
+ */
+export function getSmartRCSession(
+  sessions: string[],
+  targetDate: Date = new Date(),
+  currentTime: Date = new Date()
+): string {
+  if (!sessions || sessions.length === 0) return '';
+
+  const targetDayIdx = targetDate.getDay();
+  const sortedFromTarget = sortRCSessionsFromDay(sessions, targetDayIdx);
+  if (sortedFromTarget.length === 0) return sessions[0];
+
+  const targetDayName = INDEX_TO_DAY_NAME[targetDayIdx].toLowerCase();
+  const daySessions = sortedFromTarget.filter(s =>
+    extractSessionDay(s).toLowerCase() === targetDayName
+  );
+
+  if (daySessions.length > 0) {
+    const isToday = targetDate.toDateString() === currentTime.toDateString();
+    if (isToday) {
+      const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+      for (const s of daySessions) {
+        const startMin = parseSessionTimeToMinutes(s);
+        // Find end time if specified (e.g. "5:00 pm – 5:45 pm")
+        const allTimes = Array.from(s.matchAll(/(\d{1,2}):(\d{2})\s*(am|pm)/gi));
+        const endMin = allTimes.length >= 2
+          ? parseSessionTimeToMinutes(allTimes[1][0])
+          : startMin + 45;
+
+        // If current time is before the end of this session, select it!
+        if (currentMinutes < endMin) {
+          return s;
+        }
+      }
+    }
+    // If not today or all sessions on this day have passed, return the first session of that day
+    return daySessions[0];
+  }
+
+  // If no sessions on targetDay, pick the first session of the next day that has sessions
+  return sortedFromTarget[0];
+}
+
