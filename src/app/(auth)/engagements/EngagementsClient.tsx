@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useMemo, useCallback, useTransition, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -90,7 +90,7 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
 
   const [form, setForm] = useState({
     handled_by: initial?.handled_by ?? (isRep ? defaultRepName : ''),
-    type: initial?.type ?? '',
+    type: (initial?.type && ['WhatsApp', 'SMS', 'Email'].includes(initial.type)) ? 'Message' : (initial?.type ?? ''),
     purpose: initial?.purpose ?? '',
     status: initial?.status ?? '',
     feedback: initial?.feedback ?? '',
@@ -98,7 +98,18 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
     action: initial?.action ?? '',
     action_deadline: initial?.action_deadline ? initial.action_deadline.slice(0, 10) : '',
     action_status: initial?.action_status ?? '',
+    // Channel for Message type interactions; follow-up channel for unreached calls
+    message_sent: (initial?.type && ['WhatsApp', 'SMS', 'Email'].includes(initial.type)) ? initial.type : (initial?.message_sent ?? ''),
   });
+
+  // Derived booleans for conditional rendering
+  const isCall = form.type.toLowerCase() === 'call';
+  const isMessage = form.type.toLowerCase() === 'message';
+  const isUnreachedCall = isCall && !!form.status && form.status.toLowerCase() !== 'reached';
+
+  const handleTypeChange = (newType: string) => {
+    setForm(prev => ({ ...prev, type: newType, status: '', message_sent: '' }));
+  };
 
   const set = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -211,12 +222,29 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
             </div>
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Type *</label>
-              <select className={styles.formInput} value={form.type} onChange={e => set('type', e.target.value)} required>
+              {/* Hardcoded to Call / Message only */}
+              <select className={styles.formInput} value={form.type} onChange={e => handleTypeChange(e.target.value)} required>
                 <option value="">Select...</option>
-                {(dropdowns.type ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                <option value="Call">Call</option>
+                <option value="Message">Message</option>
               </select>
             </div>
           </div>
+
+          {/* Message Channel — only when type is Message */}
+          {isMessage && (
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Message Channel *</label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {(['WhatsApp', 'SMS', 'Email'] as const).map(ch => (
+                  <button key={ch} type="button"
+                    className={form.message_sent === ch ? styles.toggleActive : styles.toggleInactive}
+                    onClick={() => set('message_sent', ch)}
+                  >{ch}</button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className={styles.formRow}>
             <div className={styles.formGroup}>
@@ -226,14 +254,35 @@ function InteractionModal({ mode, initial, dropdowns, profile, onClose, onSucces
                 {(dropdowns.purpose ?? []).map(v => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Status</label>
-              <select className={styles.formInput} value={form.status} onChange={e => set('status', e.target.value)}>
-                <option value="">Select...</option>
-                {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-              </select>
-            </div>
+            {/* Status — only for Call type */}
+            {isCall && (
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Status</label>
+                <select className={styles.formInput} value={form.status} onChange={e => {
+                  set('status', e.target.value);
+                  if (e.target.value.toLowerCase() === 'reached') set('message_sent', '');
+                }}>
+                  <option value="">Select...</option>
+                  {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            )}
           </div>
+
+          {/* Follow-up message — only for unreached calls */}
+          {isUnreachedCall && (
+            <div className={styles.formGroup} style={{ background: 'var(--primary-dim)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.25)' }}>
+              <label className={styles.formLabel} style={{ color: 'var(--primary)', marginBottom: '4px' }}>Was a follow-up message sent?</label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {(['', 'WhatsApp', 'SMS', 'Email'] as const).map(ch => (
+                  <button key={ch || 'none'} type="button"
+                    className={form.message_sent === ch ? styles.toggleActive : styles.toggleInactive}
+                    onClick={() => set('message_sent', ch)}
+                  >{ch || 'No message sent'}</button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>Feedback / Notes</label>
@@ -530,15 +579,17 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
               </div>
               <div>
                 <label style={labelStyle}>Type *</label>
-                <select required style={{ ...inputStyle, appearance: 'none' }} value={form.type} onChange={e => set('type', e.target.value)}>
+                {/* Hardcoded to Call / Message only */}
+                <select required style={{ ...inputStyle, appearance: 'none' }} value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value, status: '' }))}>
                   <option value="">Select...</option>
-                  {(dropdowns.type ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  <option value="Call">Call</option>
+                  <option value="Message">Message</option>
                 </select>
               </div>
             </div>
 
-            {/* Purpose and Status in 2-column grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            {/* Purpose and Status — Status only visible for Call type */}
+            <div style={{ display: 'grid', gridTemplateColumns: form.type.toLowerCase() === 'call' ? '1fr 1fr' : '1fr', gap: '12px' }}>
               <div>
                 <label style={labelStyle}>Purpose *</label>
                 <select required style={{ ...inputStyle, appearance: 'none' }} value={form.purpose} onChange={e => set('purpose', e.target.value)}>
@@ -546,13 +597,15 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
                   {(dropdowns.purpose ?? []).map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              <div>
-                <label style={labelStyle}>Status</label>
-                <select style={{ ...inputStyle, appearance: 'none' }} value={form.status} onChange={e => set('status', e.target.value)}>
-                  <option value="">Select Status...</option>
-                  {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </div>
+              {form.type.toLowerCase() === 'call' && (
+                <div>
+                  <label style={labelStyle}>Status</label>
+                  <select style={{ ...inputStyle, appearance: 'none' }} value={form.status} onChange={e => set('status', e.target.value)}>
+                    <option value="">Select Status...</option>
+                    {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Feedback / Notes */}
@@ -1283,7 +1336,7 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew, 
                   </th>
                   <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('status')}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      Status
+                      Status / Channel
                       {getSortIndicator('status') && <ArrowUpDown size={12} style={{ color: 'var(--primary)' }} />}
                     </div>
                   </th>
@@ -1323,7 +1376,7 @@ function InteractionsTab({ interactions: initial, dropdowns, profile, onLogNew, 
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{int.handled_by}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{int.type}</td>
-                    <td>{int.status || '—'}</td>
+                    <td>{int.type?.toLowerCase() === 'message' ? (int.message_sent || '—') : (int.status || '—')}</td>
                     <td style={{ maxWidth: 200 }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={int.purpose ?? ''}>
                         {int.purpose || '—'}

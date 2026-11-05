@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useTransition, useCallback } from 'react';
 import { X, Plus, RefreshCw, Search, CheckCircle, AlertCircle, Calendar, Trash2, ExternalLink } from 'lucide-react';
@@ -16,6 +16,23 @@ function fmtDate(val: string | null, withTime = false) {
     const d = parseISO(val);
     return isValid(d) ? format(d, withTime ? 'dd-MMM-yy hh:mm a' : 'dd-MMM-yy') : val;
   } catch { return val; }
+}
+
+/** Legacy message types that should be coerced to 'Message' with channel pre-filled */
+const LEGACY_MESSAGE_TYPES = ['WhatsApp', 'SMS', 'Email'];
+const MESSAGE_CHANNELS = ['WhatsApp', 'SMS', 'Email'] as const;
+
+/** Coerce a raw DB type to the canonical UI type (Call | Message). */
+function resolveType(raw: string | undefined | null): string {
+  if (!raw) return '';
+  if (LEGACY_MESSAGE_TYPES.includes(raw)) return 'Message';
+  return raw;
+}
+
+/** If a legacy type was stored, the channel lives in the original type value. */
+function resolveMessageSent(rawType: string | undefined | null, rawMessageSent: string | undefined | null): string {
+  if (rawType && LEGACY_MESSAGE_TYPES.includes(rawType)) return rawType;
+  return rawMessageSent ?? '';
 }
 
 interface InteractionDrawerProps {
@@ -101,20 +118,36 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
   const isRep = profile.role !== 'admin' && !!(profile.sheet_rep_name || profile.full_name);
   const defaultRepName = profile.sheet_rep_name || profile.full_name || '';
 
+  // Auto-coerce legacy types (WhatsApp/SMS/Email → Message) on initial load.
   const [form, setForm] = useState({
     handled_by: initial?.handled_by ?? (isRep ? defaultRepName : ''),
-    type: initial?.type ?? '',
+    type: resolveType(initial?.type),
     purpose: initial?.purpose ?? '',
-    status: initial?.status ?? '',
+    status: LEGACY_MESSAGE_TYPES.includes(initial?.type ?? '') ? '' : (initial?.status ?? ''),
     feedback: initial?.feedback ?? '',
     action_required: (initial?.action_required ?? 'No') as 'Yes' | 'No',
     action: initial?.action ?? '',
     action_deadline: initial?.action_deadline ? initial.action_deadline.slice(0, 10) : '',
     action_status: initial?.action_status ?? '',
-    message_sent: initial?.message_sent ?? '',
+    message_sent: resolveMessageSent(initial?.type, initial?.message_sent),
   });
 
   const set = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }));
+
+  // Derived booleans for conditional rendering
+  const isCall = form.type.toLowerCase() === 'call';
+  const isMessage = form.type.toLowerCase() === 'message';
+  const isUnreachedCall = isCall && !!form.status && form.status.toLowerCase() !== 'reached';
+
+  const handleTypeChange = (newType: string) => {
+    setForm(prev => ({
+      ...prev,
+      type: newType,
+      // Clear status when switching to Message; clear channel when switching to Call
+      status: '',
+      message_sent: '',
+    }));
+  };
 
   const handleCubSearch = useCallback(async (q: string) => {
     setCubQuery(q);
@@ -142,6 +175,10 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
         parent_first_name: selectedCub.parentFirstName,
         parent_last_name: selectedCub.parentLastName,
         ...form,
+        // For Message type, status is never stored
+        status: isMessage ? '' : form.status,
+        // For Call type (reached), no message_sent
+        message_sent: isCall && form.status.toLowerCase() === 'reached' ? '' : form.message_sent,
       };
 
       let res;
@@ -221,12 +258,25 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
                   </div>
                 </div>
 
-                <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>Status</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginTop: 3 }}>
-                    {form.status || '—'}
+                {/* Status — only show for Call type */}
+                {isCall && (
+                  <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>Status</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginTop: 3 }}>
+                      {form.status || '—'}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Channel — only show for Message type */}
+                {isMessage && (
+                  <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>Channel</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginTop: 3 }}>
+                      {form.message_sent || '—'}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -236,9 +286,10 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
                 </div>
               </div>
 
-              {form.message_sent && (
+              {/* Follow-up message badge — for unreached calls only */}
+              {isCall && form.message_sent && (
                 <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--primary-dim)', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 600 }}>Message Sent</div>
+                  <div style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 600 }}>Follow-up Message Sent</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginTop: 3 }}>
                     {form.message_sent}
                   </div>
@@ -382,12 +433,38 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
               </div>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>Type *</label>
-                <select className={styles.formInput} value={form.type} onChange={e => set('type', e.target.value)} required>
+                {/* Hardcoded to Call / Message only — no longer driven by config_dropdowns */}
+                <select
+                  className={styles.formInput}
+                  value={form.type}
+                  onChange={e => handleTypeChange(e.target.value)}
+                  required
+                >
                   <option value="">Select...</option>
-                  {(dropdowns.type ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  <option value="Call">Call</option>
+                  <option value="Message">Message</option>
                 </select>
               </div>
             </div>
+
+            {/* Message Channel — visible only when type is Message */}
+            {isMessage && (
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Message Channel *</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {MESSAGE_CHANNELS.map(ch => (
+                    <button
+                      key={ch}
+                      type="button"
+                      className={form.message_sent === ch ? styles.toggleActive : styles.toggleInactive}
+                      onClick={() => set('message_sent', ch)}
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
@@ -397,35 +474,39 @@ export function InteractionDrawer({ mode, initial, dropdowns, profile, onClose, 
                   {(dropdowns.purpose ?? []).map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Status</label>
-                <select className={styles.formInput} value={form.status} onChange={e => {
-                  set('status', e.target.value);
-                  if (e.target.value.toLowerCase() === 'reached') {
-                    set('message_sent', '');
-                  }
-                }}>
-                  <option value="">Select...</option>
-                  {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </div>
+              {/* Status — only visible when type is Call */}
+              {isCall && (
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Status</label>
+                  <select className={styles.formInput} value={form.status} onChange={e => {
+                    set('status', e.target.value);
+                    if (e.target.value.toLowerCase() === 'reached') {
+                      set('message_sent', '');
+                    }
+                  }}>
+                    <option value="">Select...</option>
+                    {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
 
-            {/* Conditional Message Sent for Unreached Calls */}
-            {form.type.toLowerCase().includes('call') && form.status && form.status.toLowerCase() !== 'reached' && (
+            {/* Follow-up message — only for unreached calls */}
+            {isUnreachedCall && (
               <div className={styles.formGroup} style={{ background: 'var(--primary-dim)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.25)' }}>
-                <label className={styles.formLabel} style={{ color: 'var(--primary)', marginBottom: '4px' }}>Was a message sent?</label>
-                <select
-                  className={styles.formInput}
-                  value={form.message_sent}
-                  onChange={e => set('message_sent', e.target.value)}
-                  style={{ background: 'var(--bg-card)', borderColor: 'var(--primary)' }}
-                >
-                  <option value="">No message sent</option>
-                  <option value="WhatsApp">WhatsApp</option>
-                  <option value="SMS">SMS</option>
-                  <option value="Email">Email</option>
-                </select>
+                <label className={styles.formLabel} style={{ color: 'var(--primary)', marginBottom: '4px' }}>Was a follow-up message sent?</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {(['', ...MESSAGE_CHANNELS] as const).map((ch, idx) => (
+                    <button
+                      key={ch || 'none'}
+                      type="button"
+                      className={form.message_sent === ch ? styles.toggleActive : styles.toggleInactive}
+                      onClick={() => set('message_sent', ch)}
+                    >
+                      {ch || 'No message sent'}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

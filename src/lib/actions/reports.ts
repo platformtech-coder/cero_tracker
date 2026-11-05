@@ -10,6 +10,7 @@ export interface DailyActivityRow {
   calls_made: number;
   calls_successful: number;
   calls_unsuccessful: number;
+  unreached_messages_sent: number;
   messages_sent: number;
   total_interactions: number;
   actions_created?: number;
@@ -31,6 +32,7 @@ export interface InteractionDetailRow {
   feedback: string | null;
   action_required: string;
   action: string | null;
+  message_sent: string | null;
 }
 
 export interface CallParentsSummaryRow {

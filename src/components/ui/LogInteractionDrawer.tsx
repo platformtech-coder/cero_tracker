@@ -18,6 +18,10 @@ interface LogInteractionDrawerProps {
   profile?: Profile;
 }
 
+/** Channels available for Message type interactions */
+const MESSAGE_CHANNELS = ['WhatsApp', 'SMS', 'Email'] as const;
+type MessageChannel = typeof MESSAGE_CHANNELS[number];
+
 export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const isAdmin = profile?.role === 'admin';
   const defaultRepName = profile?.sheet_rep_name || profile?.full_name || '';
@@ -57,7 +61,11 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const [handledBy, setHandledBy] = useState('');
   const [type, setType] = useState('');
   const [purpose, setPurpose] = useState('');
+  // status: only used for Call type
   const [status, setStatus] = useState('');
+  // messageChannel: only used for Message type (stored in message_sent)
+  const [messageChannel, setMessageChannel] = useState<MessageChannel | ''>('');
+  // messageSent: for unreached calls — a follow-up message channel
   const [messageSent, setMessageSent] = useState('');
   const [feedback, setFeedback] = useState('');
   const [actionRequired, setActionRequired] = useState<'Yes' | 'No'>('No');
@@ -67,6 +75,10 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
   const [showAlert, setShowAlert] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
   const [preferredLanguage, setPreferredLanguage] = useState('');
+
+  const isCall = type.toLowerCase() === 'call';
+  const isMessage = type.toLowerCase() === 'message';
+  const isUnreachedCall = isCall && status && status.toLowerCase() !== 'reached';
 
   const fetchSiblings = async (id: string) => {
     setIsLoadingSiblings(true);
@@ -116,6 +128,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     setType('');
     setPurpose('');
     setStatus('');
+    setMessageChannel('');
     setMessageSent('');
     setFeedback('');
     setActionRequired('No');
@@ -181,6 +194,22 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
     fetchSiblings(cub.cubId);
   };
 
+  // When type changes, clear conditional fields
+  const handleTypeChange = (newType: string) => {
+    setType(newType);
+    setStatus('');
+    setMessageChannel('');
+    setMessageSent('');
+  };
+
+  // When status changes on a call, clear unreached message field if reached
+  const handleStatusChange = (newStatus: string) => {
+    setStatus(newStatus);
+    if (newStatus.toLowerCase() === 'reached') {
+      setMessageSent('');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cubId) {
@@ -194,13 +223,24 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
       setShowAlert(true);
       return;
     }
+
+    // For Message type: channel is required
+    if (isMessage && !messageChannel) {
+      setAlertMessage('Please select the message channel (WhatsApp, SMS, or Email).');
+      setShowAlert(true);
+      return;
+    }
+
     setIsSubmitting(true);
 
-    const effectiveMessageSent = (type.toLowerCase().includes('call') && status && status.toLowerCase() !== 'reached' && messageSent)
-      ? messageSent
-      : undefined;
+    // Build interaction payload
+    // - For Message: message_sent = channel, status = undefined
+    // - For Call: message_sent = follow-up channel (if unreached), status = call status
+    const effectiveStatus = isCall ? status : undefined;
+    const effectiveMessageSent = isMessage
+      ? messageChannel || undefined
+      : (isUnreachedCall && messageSent ? messageSent : undefined);
 
-    // If siblings are selected, use multi-cub family interaction action
     if (selectedSiblingIds.size > 0 && siblingsData?.siblings) {
       const selectedSiblings = siblingsData.siblings.filter(s => selectedSiblingIds.has(s.cub_id));
       const multiCubs = [
@@ -221,7 +261,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
         handled_by: finalHandledBy,
         type,
         purpose,
-        status,
+        status: effectiveStatus,
         feedback,
         message_sent: effectiveMessageSent,
         action_required: actionRequired,
@@ -250,7 +290,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
       handled_by: finalHandledBy,
       type,
       purpose,
-      status,
+      status: effectiveStatus,
       feedback,
       message_sent: effectiveMessageSent,
       action_required: actionRequired,
@@ -400,7 +440,6 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
               </div>
             </div>
 
-
             {/* Siblings Panel */}
             {cubId && (
               <div>
@@ -413,7 +452,6 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                 </div>
 
                 {isLoadingSiblings ? (
-                  /* Skeleton */
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {[1, 2].map(i => (
                       <div key={i} style={{ height: '40px', borderRadius: '8px', background: 'var(--bg-input)', opacity: 0.5, animation: 'pulse 1.5s ease-in-out infinite' }} />
@@ -421,7 +459,6 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                   </div>
                 ) : siblingsData && siblingsData.siblings.length > 0 ? (
                   <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
-                    {/* Header row */}
                     <div style={{ padding: '8px 12px', background: 'var(--bg-input)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: '12px', color: 'var(--text-2)' }}>
                         {siblingsData.siblings.length} sibling{siblingsData.siblings.length !== 1 ? 's' : ''} found — include in this log?
@@ -446,7 +483,6 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                       </button>
                     </div>
 
-                    {/* Sibling rows */}
                     {siblingsData.siblings.map(sib => {
                       const checked = selectedSiblingIds.has(sib.cub_id);
                       return (
@@ -489,7 +525,6 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                       );
                     })}
 
-                    {/* Footer summary */}
                     {selectedSiblingIds.size > 0 && (
                       <div style={{ padding: '8px 14px', background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <AlertCircle size={13} color="var(--primary)" />
@@ -520,9 +555,9 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                     <thead>
                       <tr>
                         <th>Date</th>
-                        <th>Handled By</th>
+                        <th>By</th>
                         <th>Type</th>
-                        <th>Status</th>
+                        <th>Channel / Status</th>
                         <th>Purpose</th>
                         <th>Notes</th>
                       </tr>
@@ -534,7 +569,7 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
                             <td>{formatDate(h.date)}</td>
                             <td>{h.handled_by || '—'}</td>
                             <td>{h.type || '—'}</td>
-                            <td>{h.status || '—'}</td>
+                            <td>{h.type?.toLowerCase() === 'message' ? (h.message_sent || '—') : (h.status || '—')}</td>
                             <td>{h.purpose || '—'}</td>
                             <td style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={h.feedback}>{h.feedback || '—'}</td>
                           </tr>
@@ -585,9 +620,15 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
             <div style={{ display: 'flex', gap: '12px' }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Type *</label>
-                <select required value={type} onChange={e => setType(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+                <select
+                  required
+                  value={type}
+                  onChange={e => handleTypeChange(e.target.value)}
+                  style={{ ...inputStyle, appearance: 'none' }}
+                >
                   <option value="">Select...</option>
-                  {dropdowns['type']?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  <option value="Call">Call</option>
+                  <option value="Message">Message</option>
                 </select>
               </div>
               <div style={{ flex: 1 }}>
@@ -599,42 +640,83 @@ export function LogInteractionDrawer({ profile }: LogInteractionDrawerProps) {
               </div>
             </div>
 
-            {/* Status */}
-            <div>
-              <label style={labelStyle}>Status</label>
-              <select 
-                value={status} 
-                onChange={e => {
-                  setStatus(e.target.value);
-                  if (e.target.value.toLowerCase() === 'reached') {
-                    setMessageSent('');
-                  }
-                }} 
-                style={{ ...inputStyle, appearance: 'none' }}
-              >
-                <option value="">Select...</option>
-                {dropdowns['status']?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            </div>
+            {/* Message Channel (only for Message type) */}
+            {isMessage && (
+              <div>
+                <label style={labelStyle}>Message Channel *</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {MESSAGE_CHANNELS.map(ch => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setMessageChannel(ch)}
+                      style={{
+                        flex: 1,
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        background: messageChannel === ch ? 'var(--primary)' : 'var(--bg-input)',
+                        color: messageChannel === ch ? 'white' : 'var(--text-2)',
+                        border: messageChannel === ch ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      }}
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            {/* Message Sent (conditional for unsuccessful calls) */}
-            {type.toLowerCase().includes('call') && status && status.toLowerCase() !== 'reached' && (
+            {/* Call Status (only for Call type) */}
+            {isCall && (
+              <div>
+                <label style={labelStyle}>Call Status *</label>
+                <select
+                  required
+                  value={status}
+                  onChange={e => handleStatusChange(e.target.value)}
+                  style={{ ...inputStyle, appearance: 'none' }}
+                >
+                  <option value="">Select...</option>
+                  {dropdowns['status']?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Follow-up Message Sent (conditional — only for unreached calls) */}
+            {isUnreachedCall && (
               <div style={{ background: 'var(--primary-dim)', padding: '12px 14px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.25)' }}>
                 <label style={{ ...labelStyle, color: 'var(--primary)', marginBottom: '4px' }}>
-                  Was a message sent?
+                  Was a follow-up message sent?
                 </label>
-                <select
-                  value={messageSent}
-                  onChange={e => setMessageSent(e.target.value)}
-                  style={{ ...inputStyle, background: 'var(--bg-card)', borderColor: 'var(--primary)' }}
-                >
-                  <option value="">No message sent</option>
-                  <option value="WhatsApp">WhatsApp</option>
-                  <option value="SMS">SMS</option>
-                  <option value="Email">Email</option>
-                </select>
-                <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
-                  Specify if a follow-up WhatsApp, SMS, or Email was sent for this unreached call.
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {(['', ...MESSAGE_CHANNELS] as const).map(ch => (
+                    <button
+                      key={ch || 'none'}
+                      type="button"
+                      onClick={() => setMessageSent(ch)}
+                      style={{
+                        flex: 1,
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        background: messageSent === ch ? 'var(--primary)' : 'var(--bg-card)',
+                        color: messageSent === ch ? 'white' : 'var(--text-2)',
+                        border: messageSent === ch ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      }}
+                    >
+                      {ch || 'None'}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' }}>
+                  Select the channel used for the follow-up message after this unreached call.
                 </div>
               </div>
             )}
