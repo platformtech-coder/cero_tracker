@@ -49,6 +49,24 @@ function ActionStatusBadge({ status, isOverdue }: { status: string; isOverdue: b
 
 
 // ─── Follow-Up Drawer ───────────────────────────────────────────
+const MESSAGE_CHANNELS = ['WhatsApp', 'SMS', 'Email'] as const;
+type MessageChannel = typeof MESSAGE_CHANNELS[number];
+
+const LEGACY_MESSAGE_TYPES = ['WhatsApp', 'SMS', 'Email'];
+
+function resolveType(raw: string | undefined | null): string {
+  if (!raw) return '';
+  if (LEGACY_MESSAGE_TYPES.includes(raw)) return 'Message';
+  return raw;
+}
+
+function resolveMessageChannel(rawType: string | undefined | null): MessageChannel | '' {
+  if (rawType && (MESSAGE_CHANNELS as readonly string[]).includes(rawType)) {
+    return rawType as MessageChannel;
+  }
+  return '';
+}
+
 interface FollowUpDrawerProps {
   action: Action;
   dropdowns: Record<string, string[]>;
@@ -67,9 +85,12 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
   const isRep = profile.role !== 'admin' && !!(profile.sheet_rep_name || profile.full_name);
   const defaultRepName = profile.sheet_rep_name || profile.full_name || '';
 
+  const initialType = resolveType(action.type);
+  const initialChannel = resolveMessageChannel(action.type);
+
   const [form, setForm] = useState({
     handled_by: isRep ? defaultRepName : '',
-    type: action.type || '',
+    type: initialType === 'Call' || initialType === 'Message' ? initialType : 'Call',
     purpose: action.purpose || '',
     status: '',
     feedback: '',
@@ -78,11 +99,56 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
     action_deadline: '',
   });
 
+  const [messageChannel, setMessageChannel] = useState<MessageChannel | ''>(initialChannel);
+  const [messageSent, setMessageSent] = useState<string>('');
+
+  const isCall = form.type.toLowerCase() === 'call';
+  const isMessage = form.type.toLowerCase() === 'message';
+  const isUnreachedCall = isCall && form.status && form.status.toLowerCase() !== 'reached';
+
   const set = (k: keyof typeof form, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleTypeChange = (newType: string) => {
+    setForm(p => ({ ...p, type: newType, status: '' }));
+    setMessageChannel('');
+    setMessageSent('');
+  };
+
+  const handleStatusChange = (newStatus: string) => {
+    setForm(p => ({ ...p, status: newStatus }));
+    if (newStatus.toLowerCase() === 'reached') {
+      setMessageSent('');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!form.type) {
+      setError('Please select an interaction type.');
+      return;
+    }
+
+    if (isMessage && !messageChannel) {
+      setError('Please select the message channel (WhatsApp, SMS, or Email).');
+      return;
+    }
+
+    if (isCall && !form.status) {
+      setError('Please select the call status.');
+      return;
+    }
+
+    if (!form.purpose) {
+      setError('Please select a purpose.');
+      return;
+    }
+
+    if (!form.feedback.trim()) {
+      setError('Please enter feedback / notes for this follow-up.');
+      return;
+    }
 
     // If setting a new action, validate that action description and deadline are provided
     if (form.action_required === 'Yes') {
@@ -96,20 +162,32 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
       }
     }
 
-    const effectiveStatus = form.action_required === 'Yes' ? 'Completed' : newStatus;
+    const effectiveActionStatus = form.action_required === 'Yes' ? 'Completed' : newStatus;
+    const effectiveStatus = isCall ? form.status : undefined;
+    const effectiveMessageSent = isMessage
+      ? messageChannel || undefined
+      : (isUnreachedCall && messageSent ? messageSent : undefined);
 
     startTransition(async () => {
       const res = await submitActionFollowUp({
         originalInteractionId: action.interaction_id,
         actionId: action.id,
-        newActionStatus: effectiveStatus,
+        newActionStatus: effectiveActionStatus,
         followUp: {
           cub_id: action.cub_id,
           cub_first_name: action.cub_first_name,
           cub_last_name: action.cub_last_name,
           parent_first_name: action.parent_first_name,
           parent_last_name: action.parent_last_name,
-          ...form,
+          handled_by: isRep ? defaultRepName : (form.handled_by || defaultRepName),
+          type: form.type,
+          purpose: form.purpose,
+          status: effectiveStatus,
+          message_sent: effectiveMessageSent,
+          feedback: form.feedback,
+          action_required: form.action_required,
+          action: form.action,
+          action_deadline: form.action_deadline,
         },
       });
       if (res.error) { 
@@ -258,62 +336,138 @@ function FollowUpDrawer({ action, dropdowns, profile, onClose, onSuccess }: Foll
               </select>
             </div>
 
-            {/* Handled By and Type in 2-column grid */}
+            {/* Handled By */}
+            <div>
+              <label style={labelStyle}>Handled By *</label>
+              {isRep ? (
+                <input
+                  type="text"
+                  value={form.handled_by || defaultRepName}
+                  readOnly
+                  disabled
+                  style={{
+                    ...inputStyle,
+                    opacity: 0.85,
+                    cursor: 'not-allowed',
+                    background: 'var(--bg-card)',
+                    fontWeight: 600,
+                  }}
+                  title="Automatically assigned to your rep account"
+                />
+              ) : (
+                <select required style={{ ...inputStyle, appearance: 'none' }} value={form.handled_by} onChange={e => set('handled_by', e.target.value)}>
+                  <option value="">Select Rep...</option>
+                  {(dropdowns.handled_by ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              )}
+            </div>
+
+            {/* Type + Purpose in 2-column grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
-                <label style={labelStyle}>Handled By *</label>
-                {isRep ? (
-                  <input
-                    type="text"
-                    value={form.handled_by || defaultRepName}
-                    readOnly
-                    disabled
-                    style={{
-                      ...inputStyle,
-                      opacity: 0.85,
-                      cursor: 'not-allowed',
-                      background: 'var(--bg-card)',
-                      fontWeight: 600,
-                    }}
-                    title="Automatically assigned to your rep account"
-                  />
-                ) : (
-                  <select required style={{ ...inputStyle, appearance: 'none' }} value={form.handled_by} onChange={e => set('handled_by', e.target.value)}>
-                    <option value="">Select Rep...</option>
-                    {(dropdowns.handled_by ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
-                )}
-              </div>
-              <div>
                 <label style={labelStyle}>Type *</label>
-                {/* Hardcoded to Call / Message only */}
-                <select required style={{ ...inputStyle, appearance: 'none' }} value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value, status: '' }))}>
+                <select
+                  required
+                  style={{ ...inputStyle, appearance: 'none' }}
+                  value={form.type}
+                  onChange={e => handleTypeChange(e.target.value)}
+                >
                   <option value="">Select...</option>
                   <option value="Call">Call</option>
                   <option value="Message">Message</option>
                 </select>
               </div>
-            </div>
-
-            {/* Purpose and Status — Status only visible for Call type */}
-            <div style={{ display: 'grid', gridTemplateColumns: form.type.toLowerCase() === 'call' ? '1fr 1fr' : '1fr', gap: '12px' }}>
               <div>
                 <label style={labelStyle}>Purpose *</label>
-                <select required style={{ ...inputStyle, appearance: 'none' }} value={form.purpose} onChange={e => set('purpose', e.target.value)}>
+                <select
+                  required
+                  style={{ ...inputStyle, appearance: 'none' }}
+                  value={form.purpose}
+                  onChange={e => set('purpose', e.target.value)}
+                >
                   <option value="">Select Purpose...</option>
                   {(dropdowns.purpose ?? []).map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              {form.type.toLowerCase() === 'call' && (
-                <div>
-                  <label style={labelStyle}>Status</label>
-                  <select style={{ ...inputStyle, appearance: 'none' }} value={form.status} onChange={e => set('status', e.target.value)}>
-                    <option value="">Select Status...</option>
-                    {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
-                </div>
-              )}
             </div>
+
+            {/* Message Channel (only for Message type) */}
+            {isMessage && (
+              <div>
+                <label style={labelStyle}>Message Channel *</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {MESSAGE_CHANNELS.map(ch => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setMessageChannel(ch)}
+                      style={{
+                        flex: 1,
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        background: messageChannel === ch ? 'var(--primary)' : 'var(--bg-input)',
+                        color: messageChannel === ch ? 'white' : 'var(--text-2)',
+                        border: messageChannel === ch ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      }}
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Call Status (only for Call type) */}
+            {isCall && (
+              <div>
+                <label style={labelStyle}>Call Status *</label>
+                <select
+                  required
+                  value={form.status}
+                  onChange={e => handleStatusChange(e.target.value)}
+                  style={{ ...inputStyle, appearance: 'none' }}
+                >
+                  <option value="">Select Status...</option>
+                  {(dropdowns.status ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Follow-up Message Sent (conditional — only for unreached calls) */}
+            {isUnreachedCall && (
+              <div style={{ background: 'var(--primary-dim)', padding: '12px 14px', borderRadius: '8px', border: '1px solid rgba(13, 148, 136, 0.25)' }}>
+                <label style={{ ...labelStyle, color: 'var(--primary)', marginBottom: '4px' }}>
+                  Was a follow-up message sent?
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {(['', ...MESSAGE_CHANNELS] as const).map(ch => (
+                    <button
+                      key={ch || 'none'}
+                      type="button"
+                      onClick={() => setMessageSent(ch)}
+                      style={{
+                        flex: 1,
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        background: messageSent === ch ? 'var(--primary)' : 'var(--bg-card)',
+                        color: messageSent === ch ? 'white' : 'var(--text-2)',
+                        border: messageSent === ch ? '1px solid var(--primary)' : '1px solid var(--border)',
+                      }}
+                    >
+                      {ch || 'None'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Feedback / Notes */}
             <div>
