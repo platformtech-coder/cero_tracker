@@ -93,7 +93,8 @@ export default function ApprovalsTab({ onRefreshOverview }: { onRefreshOverview?
         const res = await approveContactEditRequest(req.id);
         if (res.success) {
           const sheetMsg = res.sheetSynced ? ' ✓ Synced to Google Sheet Master tab.' : res.sheetError ? ` (Sheet: ${res.sheetError})` : '';
-          toast.success(`Approved contact update for ${req.entity_name}.${sheetMsg}`, { id: `approve-${req.id}` });
+          const sibMsg = res.siblingCount && res.siblingCount > 0 ? ` (+ ${res.siblingCount} sibling${res.siblingCount > 1 ? 's' : ''} updated)` : '';
+          toast.success(`Approved contact update for ${req.entity_name}${sibMsg}.${sheetMsg}`, { id: `approve-${req.id}` });
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event('cero:refresh-notifications'));
           }

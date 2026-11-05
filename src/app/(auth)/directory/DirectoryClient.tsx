@@ -52,7 +52,7 @@ const EDIT_LABEL: React.CSSProperties = {
 };
 
 // ─── Family Profile Drawer ───────────────────────────────────────
-function FamilyDrawer({ family, onClose, onUpdated, readOnly }: { family: any; onClose: () => void; onUpdated?: (updated: Partial<any>) => void; readOnly?: boolean }) {
+function FamilyDrawer({ family, onClose, onUpdated, readOnly }: { family: any; onClose: () => void; onUpdated?: (updated: Partial<any>, allUpdatedCubIds?: string[]) => void; readOnly?: boolean }) {
   const [selectedCubForDrawer, setSelectedCubForDrawer] = useState<any | null>(null);
   const [activityTab, setActivityTab] = useState<'interactions' | 'actions'>('interactions');
   const [activity, setActivity] = useState<{ interactions: Interaction[]; actions: Action[]; email_history?: any }>({ interactions: [], actions: [] });
@@ -106,10 +106,11 @@ function FamilyDrawer({ family, onClose, onUpdated, readOnly }: { family: any; o
           window.dispatchEvent(new Event('cero:refresh-notifications'));
         }
         if (res.autoApplied) {
-          if (onUpdated) onUpdated({ ...form });
+          if (onUpdated) onUpdated({ ...form }, res.allUpdatedCubIds);
           const sheetMsg = res.sheetSynced ? ' ✓ Sheet updated.' : res.sheetError ? ` (Sheet: ${res.sheetError})` : '';
-          setSaveResult({ ok: true, msg: `Saved successfully.${sheetMsg}` });
-          setTimeout(() => setIsEditing(false), 1200);
+          const sibMsg = res.siblingCount && res.siblingCount > 0 ? ` (+ ${res.siblingCount} sibling${res.siblingCount > 1 ? 's' : ''} updated)` : '';
+          setSaveResult({ ok: true, msg: `Saved successfully.${sibMsg}${sheetMsg}` });
+          setTimeout(() => setIsEditing(false), 1400);
         } else {
           setSaveResult({ ok: true, msg: res.msg });
           getPendingRequestForEntity('family', String(family.id)).then(setPendingReq);
@@ -492,9 +493,37 @@ function FamilyDrawer({ family, onClose, onUpdated, readOnly }: { family: any; o
           cub={selectedCubForDrawer}
           readOnly={readOnly}
           onClose={() => setSelectedCubForDrawer(null)}
-          onUpdated={(updated) => {
+          onUpdated={(updated, allUpdatedCubIds) => {
+            const parentContactFields = [
+              'parent_first_name',
+              'parent_last_name',
+              'parent_phone',
+              'parent_email',
+              'preferred_language',
+              'alternative_contact_name',
+              'alternative_contact_phone',
+            ];
+            const hasParentUpdates = parentContactFields.some(k => k in updated);
+
             setSelectedCubForDrawer((prev: any) => prev ? { ...prev, ...updated } : null);
-            setFamilyCubs((prev: any[]) => prev.map((c: any) => c.cub_id === selectedCubForDrawer.cub_id ? { ...c, ...updated } : c));
+            setFamilyCubs((prev: any[]) => prev.map((c: any) => {
+              if (c.cub_id === selectedCubForDrawer.cub_id) {
+                return { ...c, ...updated };
+              }
+              const isSibling = (allUpdatedCubIds && allUpdatedCubIds.includes(c.cub_id)) ||
+                (hasParentUpdates && selectedCubForDrawer.parent_phone && c.parent_phone === selectedCubForDrawer.parent_phone);
+              if (isSibling && hasParentUpdates) {
+                const parentDiff: any = {};
+                for (const k of parentContactFields) {
+                  if (k in updated) parentDiff[k] = updated[k];
+                }
+                return { ...c, ...parentDiff };
+              }
+              return c;
+            }));
+            if (hasParentUpdates && onUpdated) {
+              onUpdated(updated, allUpdatedCubIds);
+            }
           }}
         />
       )}
@@ -1076,9 +1105,69 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
           cub={selectedCub}
           readOnly={isViewer}
           onClose={() => setSelectedCub(null)}
-          onUpdated={(updated) => {
+          onUpdated={(updated, allUpdatedCubIds) => {
+            const parentContactFields = [
+              'parent_first_name',
+              'parent_last_name',
+              'parent_phone',
+              'parent_email',
+              'preferred_language',
+              'alternative_contact_name',
+              'alternative_contact_phone',
+            ];
+            const hasParentUpdates = parentContactFields.some(k => k in updated);
+
             setSelectedCub((prev: any) => prev ? { ...prev, ...updated } : null);
-            setCubs((prev: any) => prev ? prev.map((c: any) => c.cub_id === selectedCub.cub_id ? { ...c, ...updated } : c) : prev);
+
+            setCubs((prev: any) => {
+              if (!prev) return prev;
+              return prev.map((c: any) => {
+                if (c.cub_id === selectedCub.cub_id) {
+                  return { ...c, ...updated };
+                }
+                const isSibling = (allUpdatedCubIds && allUpdatedCubIds.includes(c.cub_id)) ||
+                  (hasParentUpdates && selectedCub.parent_phone && c.parent_phone === selectedCub.parent_phone);
+                if (isSibling && hasParentUpdates) {
+                  const parentDiff: any = {};
+                  for (const k of parentContactFields) {
+                    if (k in updated) parentDiff[k] = updated[k];
+                  }
+                  return { ...c, ...parentDiff };
+                }
+                return c;
+              });
+            });
+
+            if (hasParentUpdates) {
+              setFamilies((prev: any) => {
+                if (!prev) return prev;
+                return prev.map((f: any) => {
+                  const matches = (selectedCub.family_id && f.id === selectedCub.family_id) ||
+                    (selectedCub.parent_phone && (f.primary_phone === selectedCub.parent_phone || f.parent_phone === selectedCub.parent_phone));
+                  if (matches) {
+                    const famDiff: any = {};
+                    if ('parent_first_name' in updated || 'parent_last_name' in updated) {
+                      famDiff.primary_contact_name = `${updated.parent_first_name ?? selectedCub.parent_first_name ?? ''} ${updated.parent_last_name ?? selectedCub.parent_last_name ?? ''}`.trim();
+                      if ('parent_first_name' in updated) famDiff.parent_first_name = updated.parent_first_name;
+                      if ('parent_last_name' in updated) famDiff.parent_last_name = updated.parent_last_name;
+                    }
+                    if ('parent_phone' in updated) {
+                      famDiff.primary_phone = updated.parent_phone;
+                      famDiff.parent_phone = updated.parent_phone;
+                    }
+                    if ('parent_email' in updated) {
+                      famDiff.primary_email = updated.parent_email;
+                      famDiff.parent_email = updated.parent_email;
+                    }
+                    if ('preferred_language' in updated) famDiff.preferred_language = updated.preferred_language;
+                    if ('alternative_contact_name' in updated) famDiff.alternative_contact_name = updated.alternative_contact_name;
+                    if ('alternative_contact_phone' in updated) famDiff.alternative_contact_phone = updated.alternative_contact_phone;
+                    return { ...f, ...famDiff };
+                  }
+                  return f;
+                });
+              });
+            }
           }}
         />
       )}
@@ -1087,9 +1176,45 @@ export default function DirectoryClient({ initialCubs, initialFamilies, initialT
           family={selectedFamily}
           readOnly={isViewer}
           onClose={() => setSelectedFamily(null)}
-          onUpdated={(updated) => {
+          onUpdated={(updated, allUpdatedCubIds) => {
             setSelectedFamily((prev: any) => prev ? { ...prev, ...updated } : null);
-            setFamilies((prev: any) => prev ? prev.map((f: any) => f.id === selectedFamily.id ? { ...f, ...updated } : f) : prev);
+            setFamilies((prev: any) => {
+              if (!prev) return prev;
+              return prev.map((f: any) => {
+                if (f.id === selectedFamily.id) {
+                  const famDiff: any = { ...updated };
+                  if ('parent_first_name' in updated || 'parent_last_name' in updated) {
+                    famDiff.primary_contact_name = `${updated.parent_first_name ?? selectedFamily.parent_first_name ?? ''} ${updated.parent_last_name ?? selectedFamily.parent_last_name ?? ''}`.trim();
+                  }
+                  if ('parent_phone' in updated) famDiff.primary_phone = updated.parent_phone;
+                  if ('parent_email' in updated) famDiff.primary_email = updated.parent_email;
+                  return { ...f, ...famDiff };
+                }
+                return f;
+              });
+            });
+
+            setCubs((prev: any) => {
+              if (!prev) return prev;
+              return prev.map((c: any) => {
+                const matches = (allUpdatedCubIds && allUpdatedCubIds.includes(c.cub_id)) ||
+                  (c.family_id && c.family_id === selectedFamily.id) ||
+                  (selectedFamily.parent_phone && c.parent_phone === selectedFamily.parent_phone) ||
+                  (selectedFamily.primary_phone && c.parent_phone === selectedFamily.primary_phone);
+                if (matches) {
+                  const cubParentDiff: any = {};
+                  if ('parent_first_name' in updated) cubParentDiff.parent_first_name = updated.parent_first_name;
+                  if ('parent_last_name' in updated) cubParentDiff.parent_last_name = updated.parent_last_name;
+                  if ('parent_phone' in updated) cubParentDiff.parent_phone = updated.parent_phone;
+                  if ('parent_email' in updated) cubParentDiff.parent_email = updated.parent_email;
+                  if ('preferred_language' in updated) cubParentDiff.preferred_language = updated.preferred_language;
+                  if ('alternative_contact_name' in updated) cubParentDiff.alternative_contact_name = updated.alternative_contact_name;
+                  if ('alternative_contact_phone' in updated) cubParentDiff.alternative_contact_phone = updated.alternative_contact_phone;
+                  return { ...c, ...cubParentDiff };
+                }
+                return c;
+              });
+            });
           }}
         />
       )}

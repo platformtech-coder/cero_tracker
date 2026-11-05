@@ -22,7 +22,7 @@ export interface SubmitEditRequestParams {
 }
 
 export type SubmitEditRequestResult =
-  | { success: true; autoApplied: true; sheetSynced: boolean; sheetError?: string; msg?: string }
+  | { success: true; autoApplied: true; sheetSynced: boolean; sheetError?: string; msg?: string; allUpdatedCubIds?: string[]; siblingCount?: number }
   | { success: true; autoApplied: false; requestId: number; msg: string }
   | { success: false; error: string };
 
@@ -96,11 +96,25 @@ export async function submitContactEditRequest(params: SubmitEditRequestParams):
       };
       const res = await updateCubAndParentProfile(entityId, cubFields, parentFields);
       if (!res.success) return { success: false, error: res.error };
-      return { success: true, autoApplied: true, sheetSynced: res.sheetSynced, sheetError: res.sheetError };
+      return {
+        success: true,
+        autoApplied: true,
+        sheetSynced: res.sheetSynced,
+        sheetError: res.sheetError,
+        allUpdatedCubIds: res.allUpdatedCubIds,
+        siblingCount: res.siblingCount,
+      };
     } else {
       const res = await updateFamilyProfile(Number(entityId), cleanedProposed);
       if (!res.success) return { success: false, error: res.error };
-      return { success: true, autoApplied: true, sheetSynced: res.sheetSynced, sheetError: res.sheetError };
+      return {
+        success: true,
+        autoApplied: true,
+        sheetSynced: res.sheetSynced,
+        sheetError: res.sheetError,
+        allUpdatedCubIds: res.allUpdatedCubIds,
+        siblingCount: res.siblingCount,
+      };
     }
   }
 
@@ -239,7 +253,14 @@ export async function getContactEditRequests(
 }
 
 // ─── 4. Approve Edit Request ────────────────────────────────────────────────
-export async function approveContactEditRequest(requestId: number): Promise<{ success: boolean; error?: string; sheetSynced?: boolean; sheetError?: string }> {
+export async function approveContactEditRequest(requestId: number): Promise<{
+  success: boolean;
+  error?: string;
+  sheetSynced?: boolean;
+  sheetError?: string;
+  allUpdatedCubIds?: string[];
+  siblingCount?: number;
+}> {
   const adminCtx = await getAdminContext();
   if (!adminCtx) return { success: false, error: 'Unauthorized' };
 
@@ -302,6 +323,8 @@ export async function approveContactEditRequest(requestId: number): Promise<{ su
     success: true,
     sheetSynced: updateResult.sheetSynced,
     sheetError: updateResult.sheetError,
+    allUpdatedCubIds: (updateResult as any).allUpdatedCubIds,
+    siblingCount: (updateResult as any).siblingCount,
   };
 }
 

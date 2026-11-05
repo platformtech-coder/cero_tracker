@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback, useTransition } from 'react';
 import {
   X, User, Phone, MessageCircle, Mail, Clock, Plus,
-  Pencil, CheckCircle2, AlertCircle, Loader2, BookMarked, Globe
+  Pencil, CheckCircle2, AlertCircle, Loader2, BookMarked, Globe, Users
 } from 'lucide-react';
 import type { Interaction, Action, ContactEditRequest } from '@/lib/types';
-import { getCubActivity, getCubById } from '@/lib/actions/directory';
+import { getCubActivity, getCubById, getSiblingsForCub, type CubSiblingItem } from '@/lib/actions/directory';
 import { getCubReadingAudit, type ReadingAuditResult } from '@/lib/actions/perbicubs-api';
 import { savePreferredLanguage } from '@/lib/actions/update-profile';
 import { submitContactEditRequest, getPendingRequestForEntity } from '@/lib/actions/edit-requests';
@@ -36,7 +36,7 @@ export interface CubProfileDrawerProps {
   cub?: any;
   cubId?: string;
   onClose: () => void;
-  onUpdated?: (updated: Partial<any>) => void;
+  onUpdated?: (updated: Partial<any>, allUpdatedCubIds?: string[]) => void;
   readOnly?: boolean;
 }
 
@@ -125,6 +125,20 @@ export default function CubProfileDrawer({
   const [saving, startSave] = useTransition();
   const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [pendingReq, setPendingReq] = useState<ContactEditRequest | null>(null);
+  const [siblings, setSiblings] = useState<CubSiblingItem[]>([]);
+  const [loadingSiblings, setLoadingSiblings] = useState(false);
+
+  useEffect(() => {
+    if (cub?.cub_id) {
+      setLoadingSiblings(true);
+      getSiblingsForCub(cub.cub_id)
+        .then(res => setSiblings(res.siblings || []))
+        .catch(() => setSiblings([]))
+        .finally(() => setLoadingSiblings(false));
+    } else {
+      setSiblings([]);
+    }
+  }, [cub?.cub_id]);
 
   useEffect(() => {
     if (cub?.cub_id && !readOnly) {
@@ -164,10 +178,11 @@ export default function CubProfileDrawer({
         if (res.autoApplied) {
           const updated = { ...editForm };
           setCub((prev: any) => ({ ...prev, ...updated }));
-          if (onUpdated) onUpdated(updated);
+          if (onUpdated) onUpdated(updated, res.allUpdatedCubIds);
           const sheetMsg = res.sheetSynced ? ' ✓ Sheet updated.' : res.sheetError ? ` (Sheet: ${res.sheetError})` : '';
-          setSaveResult({ ok: true, msg: `Saved successfully.${sheetMsg}` });
-          setTimeout(() => setIsEditing(false), 1200);
+          const sibMsg = res.siblingCount && res.siblingCount > 0 ? ` (+ ${res.siblingCount} sibling${res.siblingCount > 1 ? 's' : ''} updated)` : '';
+          setSaveResult({ ok: true, msg: `Saved successfully.${sibMsg}${sheetMsg}` });
+          setTimeout(() => setIsEditing(false), 1400);
         } else {
           setSaveResult({ ok: true, msg: res.msg });
           getPendingRequestForEntity('cub', cub.cub_id).then(setPendingReq);
@@ -364,6 +379,25 @@ export default function CubProfileDrawer({
               {/* Parent & Emergency Contact */}
               <div className={sharedStyles.drawerSection} style={{ marginBottom: 0 }}>
                 <div className={sharedStyles.drawerSectionTitle} style={{ marginBottom: 12 }}>Parent & Emergency Contact</div>
+                {siblings.length > 0 && (
+                  <div style={{
+                    background: 'var(--primary-dim)',
+                    border: '1px solid rgba(13, 148, 136, 0.25)',
+                    borderRadius: 8,
+                    padding: '0.65rem 0.85rem',
+                    marginBottom: '0.85rem',
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                    fontSize: '0.78rem',
+                    color: 'var(--primary)',
+                  }}>
+                    <Users size={14} style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Family Contact:</strong> Updates to parent details or alternative contacts will also apply to {siblings.length} sibling{siblings.length > 1 ? 's' : ''} ({siblings.map(s => s.cub_first_name).join(', ')}).
+                    </span>
+                  </div>
+                )}
                 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                   <div>
@@ -564,6 +598,26 @@ export default function CubProfileDrawer({
                     </div>
                   )}
                 </div>
+                {siblings.length > 0 && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border)',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: 'var(--text-2)'
+                  }}>
+                    <Users size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <span>
+                      <strong>Siblings ({siblings.length}):</strong>{' '}
+                      {siblings.map(s => `${s.cub_first_name} ${s.cub_last_name}`).join(', ')}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className={tabStyles.tabs} style={{ marginBottom: '16px' }}>

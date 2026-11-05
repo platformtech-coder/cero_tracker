@@ -27,7 +27,7 @@ export interface ParentProfileFields {
 }
 
 export type ProfileUpdateResult =
-  | { success: true; sheetSynced: boolean; sheetError?: string }
+  | { success: true; sheetSynced: boolean; sheetError?: string; allUpdatedCubIds?: string[]; siblingCount?: number }
   | { success: false; error: string };
 
 function getServiceClient() {
@@ -349,6 +349,8 @@ export async function updateFamilyProfile(familyId: number, fields: ParentProfil
     success: true,
     sheetSynced: failed.length === 0,
     sheetError: failed.map(r => r.error).filter(Boolean).join('; ') || undefined,
+    allUpdatedCubIds: allCubIds,
+    siblingCount: Math.max(0, allCubIds.length - 1),
   };
 }
 
@@ -465,6 +467,8 @@ export async function updateCubAndParentProfile(
     success: true,
     sheetSynced: failed.length === 0,
     sheetError: failed.map(r => r.error).filter(Boolean).join('; ') || undefined,
+    allUpdatedCubIds: allCubIds,
+    siblingCount: Math.max(0, allCubIds.length - 1),
   };
 }
 
