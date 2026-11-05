@@ -233,15 +233,6 @@ export const TABLE_METAS: TableMeta[] = [
   },
 ];
 
-// All table labels for Overview tab (including permanently protected tables)
-export const TABLE_LABELS: Record<string, string> = {
-  ...Object.fromEntries(TABLE_METAS.map((m) => [m.key, m.label])),
-  profiles: "User Profiles (Protected)",
-  app_config: "App Config & Settings (Protected)",
-  config_dropdowns: "Config Dropdowns (Protected)",
-};
-
-export const CLEARABLE_TABLES = TABLE_METAS;
 
 // Named sheets config
 export const SHEETS_CONFIG = [

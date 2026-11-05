@@ -355,8 +355,6 @@ export async function getCallParentsReport(
   };
 }
 
-export const getCoreParentAccountability = getCallParentsReport;
-export const getCallParentsFlagsReport = getCallParentsReport;
 
 // ─── 3. Actions Report ────────────────────────────────────────
 export async function getActionsReport(
@@ -537,6 +535,3 @@ export async function getRCSessionRoster(
   return (data as RCSessionRosterRow[]) ?? [];
 }
 
-// Legacy aliases
-export const getFlagsReport = getCallParentsReport as typeof getCallParentsReport;
-export const getCoreParentAccountability2 = getCallParentsReport;
